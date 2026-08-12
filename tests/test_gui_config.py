@@ -63,8 +63,12 @@ class GuiConfigTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with mock.patch.dict(os.environ, {"DASHSCOPE_API_KEY": "system-key", "DASHSCOPE_REGION": "beijing", "STICKER_DIR": "system-stickers", "MAW_GUI_LAST_MODEL": "system-model", "MAW_GUI_LAST_LANGUAGE": "en"}, clear=True):
-                resolved = gui_config.effective_config(env_path)
+            with mock.patch.object(
+                gui_config, "MODELS",
+                (gui_config.ModelConfig(id="test", label="测试", env_key="DASHSCOPE_API_KEY", languages=()),),
+            ):
+                with mock.patch.dict(os.environ, {"DASHSCOPE_API_KEY": "system-key", "DASHSCOPE_REGION": "beijing", "STICKER_DIR": "system-stickers", "MAW_GUI_LAST_MODEL": "system-model", "MAW_GUI_LAST_LANGUAGE": "en"}, clear=True):
+                    resolved = gui_config.effective_config(env_path)
 
             self.assertEqual(resolved.api_key, "system-key")
             self.assertEqual(resolved.region, "beijing")
@@ -118,53 +122,58 @@ class GuiConfigTests(unittest.TestCase):
         self.assertNotIn("very-secret", masked)
 
     def test_model_registry_resolves_env_key_and_shape(self) -> None:
-        """Given the v1 registry, When inspected, Then model metadata is complete."""
-        self.assertEqual(len(gui_config.MODELS), 3)
+        """Given the registry, When inspected, Then the default models are faster-whisper."""
+        self.assertEqual(len(gui_config.MODELS), 2)
         model = gui_config.MODELS[0]
 
-        self.assertEqual(model.id, "qwen-audio-3.0-asr-flash-filetrans")
-        self.assertEqual(model.env_key, "DASHSCOPE_API_KEY")
+        self.assertEqual(model.id, "large-v3")
+        self.assertEqual(model.env_key, "")      # 本地引擎无需 API Key
         self.assertTrue(model.label)
-        self.assertTrue(model.supports_speaker)
-        self.assertTrue(model.supports_context)
-        self.assertTrue(model.supports_hotwords)
-        self.assertTrue(model.supports_vocabulary)
-        self.assertEqual(model.label, "qwen-audio-3.0-asr（热词 / 上下文）")
-        self.assertIn("热词", model.note)
-        self.assertIn(("yue", "粤语 / Cantonese"), model.languages)
-        funasr = gui_config.MODELS[1]
-        self.assertEqual(funasr.id, "fun-asr")
-        self.assertEqual(funasr.env_key, "DASHSCOPE_API_KEY")
-        self.assertTrue(funasr.supports_speaker)
-        self.assertIn(("zh", "中文 / Chinese"), funasr.languages)
-        self.assertEqual(len(funasr.languages), 32)
-        qwen3 = gui_config.MODELS[2]
-        self.assertEqual(qwen3.id, "qwen3-asr-flash-filetrans")
-        self.assertEqual(qwen3.env_key, "DASHSCOPE_API_KEY")
-        self.assertFalse(qwen3.supports_speaker)
+        self.assertFalse(model.supports_speaker)
+        self.assertFalse(model.supports_context)
+        self.assertFalse(model.supports_hotwords)
+        self.assertFalse(model.supports_vocabulary)
+        self.assertIn("本地", model.note)
+        self.assertIn(("zh", "中文"), model.languages)
+        small = gui_config.MODELS[1]
+        self.assertEqual(small.id, "small")
+        self.assertEqual(small.env_key, "")
+        # qwen 全量模型仍在 QWEN_MODELS 里（第二供应商）
+        self.assertEqual([m.id for m in gui_config.QWEN_MODELS],
+                         ["qwen-audio-3.0-asr-flash-filetrans", "fun-asr", "qwen3-asr-flash-filetrans"])
         self.assertEqual(
             [model.id for model in gui_config.LEGACY_MODELS],
             ["qwen3-asr-flash-filetrans"],
         )
 
-    def test_provider_registry_contains_qwen_defaults_and_key_url(self) -> None:
-        """Given the provider registry, When inspected, Then Qwen owns model settings."""
+    def test_provider_registry_contains_faster_whisper_default_and_qwen_secondary(self) -> None:
+        """Given the provider registry, When inspected, Then faster-whisper is the default."""
         provider = gui_config.PROVIDERS[0]
 
-        self.assertEqual(provider.id, "qwen")
-        self.assertIn("aliyun", provider.key_url)
-        self.assertEqual(provider.models[0].id, "qwen-audio-3.0-asr-flash-filetrans")
-        self.assertEqual(provider.regions[0][0], "beijing")
-        self.assertEqual(provider.languages[0][0], "")
-        self.assertTrue(provider.supports_speaker)
-        self.assertEqual([model.id for model in provider.models], [
+        self.assertEqual(provider.id, "faster-whisper")
+        self.assertEqual(provider.key_url, "")   # 本地引擎无申请页
+        self.assertEqual(provider.models[0].id, "large-v3")
+        self.assertEqual(provider.regions, ())
+        self.assertEqual(provider.languages[0][0], "zh")
+        self.assertFalse(provider.supports_speaker)
+        self.assertEqual([model.id for model in provider.models], ["large-v3", "small"])
+        self.assertEqual(provider.common_languages[0], "zh")
+        # qwen 保留为第二供应商
+        qwen = gui_config.PROVIDERS[1]
+        self.assertEqual(qwen.id, "qwen")
+        self.assertIn("aliyun", qwen.key_url)
+        self.assertEqual(qwen.models[0].id, "qwen-audio-3.0-asr-flash-filetrans")
+        self.assertEqual(qwen.regions[0][0], "beijing")
+        self.assertEqual(qwen.languages[0][0], "")
+        self.assertTrue(qwen.supports_speaker)
+        self.assertEqual([model.id for model in qwen.models], [
             "qwen-audio-3.0-asr-flash-filetrans",
             "fun-asr",
             "qwen3-asr-flash-filetrans",
         ])
-        self.assertTrue(provider.models[0].supports_speaker)
-        self.assertTrue(provider.models[1].supports_speaker)
-        self.assertFalse(provider.models[2].supports_speaker)
+        self.assertTrue(qwen.models[0].supports_speaker)
+        self.assertTrue(qwen.models[1].supports_speaker)
+        self.assertFalse(qwen.models[2].supports_speaker)
 
     def test_provider_registry_contains_soniox_with_speaker_support(self) -> None:
         """Given the provider registry, When inspected, Then Soniox is registered with speaker support and no regions."""
@@ -244,7 +253,7 @@ class GuiConfigTests(unittest.TestCase):
         model = gui_config.model_by_label("stt-async-v5")
 
         self.assertEqual(model.env_key, "SONIOX_API_KEY")
-        self.assertEqual(gui_config.model_by_label("no-such-model").id, "qwen-audio-3.0-asr-flash-filetrans")
+        self.assertEqual(gui_config.model_by_label("no-such-model").id, "large-v3")
 
     def test_provider_for_model_maps_soniox_model(self) -> None:
         """Given a Soniox model id, When provider resolved, Then it maps to the soniox provider."""

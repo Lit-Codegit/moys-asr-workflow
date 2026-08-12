@@ -137,7 +137,11 @@ def unique_output_path(srt_path: Path) -> Path:
         index += 1
 
 
-PROVIDER_SRT_TAGS: Final = {"qwen": ".qwen3-asr-api", "soniox": ".soniox"}
+PROVIDER_SRT_TAGS: Final = {
+    "qwen": ".qwen3-asr-api",
+    "soniox": ".soniox",
+    "faster-whisper": ".faster-whisper",
+}
 
 
 def with_test_suffix(path: Path) -> Path:
@@ -174,17 +178,31 @@ def build_transcribe_command(
     exe = str(executable or sys.executable)
     is_frozen = bool(getattr(sys, "frozen", False) if frozen is None else frozen)
     is_soniox = request.provider == "soniox"
-    script_name = "generate_subtitle_soniox_api.py" if is_soniox else "generate_subtitle_qwen_api.py"
+    is_faster_whisper = request.provider == "faster-whisper"
+    if is_soniox:
+        script_name = "generate_subtitle_soniox_api.py"
+    elif is_faster_whisper:
+        script_name = "generate_subtitle_faster_whisper_api.py"
+    else:
+        script_name = "generate_subtitle_qwen_api.py"
     script = Path(__file__).resolve().parents[1] / script_name
     if is_frozen:
-        command = [exe, "--transcribe-soniox" if is_soniox else "--transcribe"]
+        frozen_flag = "--transcribe-soniox" if is_soniox else (
+            "--transcribe-faster-whisper" if is_faster_whisper else "--transcribe"
+        )
+        command = [exe, frozen_flag]
     else:
         command = [exe, str(script)]
     command.append(str(request.media_path))
     command.extend(["--output", str(build_output_paths(request.srt_path).srt), "--json", "--no-html", "--with-waveform"])
     if request.debug_raw:
         command.append("--debug-raw")
-    if is_soniox:
+    if is_faster_whisper:
+        # 本地引擎：无 API key/region；model 空则脚本读 .env 的 FASTER_WHISPER_MODEL
+        _append_option(command, "--model", request.model if request.model else "")
+        if request.speaker_colors:
+            command.append("--speaker-colors")
+    elif is_soniox:
         _append_option(command, "--model", request.model if request.model != DEFAULT_MODEL_ID else "")
         if request.speaker_colors:
             command.append("--speaker-colors")
@@ -384,6 +402,8 @@ def _child_environment(parent: Mapping[str, str], api_key: str, workspace_id: st
     if provider == "soniox":
         if api_key:
             env["SONIOX_API_KEY"] = api_key
+    elif provider == "faster-whisper":
+        pass  # 本地引擎：无需 API Key（模型路径由子进程读 .env）
     else:
         if api_key:
             env["DASHSCOPE_API_KEY"] = api_key

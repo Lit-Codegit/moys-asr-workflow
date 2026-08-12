@@ -815,7 +815,7 @@ def _request_from_payload(payload: Mapping[str, object], env_path: Path) -> Tran
         raise PreflightError("mediaPath", "media_not_found", "Media file does not exist.")
     if not srt_text or not srt.name:
         raise PreflightError("srtPath", "output_missing", "SRT output path is required.")
-    if not api_key:
+    if provider.id != "faster-whisper" and not api_key:
         raise PreflightError("apiKey", "api_key_missing", "API key is required.")
     if provider.id == "qwen" and region == "singapore" and not workspace_id:
         raise PreflightError("workspaceId", "workspace_missing", "Workspace ID is required for Singapore region.")

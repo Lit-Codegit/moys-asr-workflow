@@ -258,7 +258,56 @@ SONIOX_MODELS: Final[tuple[ModelConfig, ...]] = (
     ),
 )
 
+# faster-whisper 支持 100+ 语言；GUI 默认只展示常用集（show_rare_langs 可放开）
+FASTER_WHISPER_LANGUAGES: Final[tuple[tuple[str, str], ...]] = (
+    ("zh", "中文"),
+    ("en", "English"),
+    ("ja", "日本語"),
+    ("ko", "한국어"),
+    ("de", "Deutsch"),
+    ("fr", "Français"),
+    ("es", "Español"),
+    ("ru", "Русский"),
+    ("it", "Italiano"),
+    ("pt", "Português"),
+    ("nl", "Nederlands"),
+    ("th", "ไทย"),
+    ("vi", "Tiếng Việt"),
+    ("id", "Bahasa Indonesia"),
+    ("ar", "العربية"),
+)
+FASTER_WHISPER_COMMON: Final[tuple[str, ...]] = (
+    "zh", "en", "ja", "ko", "de", "fr", "es", "ru",
+)
+
+FASTER_WHISPER_MODELS: Final[tuple[ModelConfig, ...]] = (
+    ModelConfig(
+        id="large-v3",
+        label="faster-whisper large-v3（本地 GPU）",
+        env_key="",
+        note="本地模型，无需 API Key；模型路径 FASTER_WHISPER_MODEL_PATH",
+        languages=FASTER_WHISPER_LANGUAGES,
+    ),
+    ModelConfig(
+        id="small",
+        label="faster-whisper small（本地，更快更省显存）",
+        env_key="",
+        note="需要时按尺寸名自动下载模型权重",
+        languages=FASTER_WHISPER_LANGUAGES,
+    ),
+)
+
 PROVIDERS: Final[tuple[ProviderConfig, ...]] = (
+    ProviderConfig(
+        id="faster-whisper",
+        label="本地 faster-whisper（默认）",
+        key_url="",
+        models=FASTER_WHISPER_MODELS,
+        regions=(),
+        languages=FASTER_WHISPER_LANGUAGES,
+        supports_speaker=False,
+        common_languages=FASTER_WHISPER_COMMON,
+    ),
     ProviderConfig(
         id="qwen",
         label="阿里云百炼（QwenASR / FunASR）",

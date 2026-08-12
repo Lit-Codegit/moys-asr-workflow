@@ -9,6 +9,8 @@ dependencies = [
     "jieba>=0.42",
     "pywebview>=6.2.1",
     "requests>=2.28",
+    # 本地默认 ASR 引擎（faster-whisper 内置 ctranslate2，GPU 加速）
+    "faster-whisper>=1.2",
 ]
 
 [dependency-groups]
