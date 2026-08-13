@@ -536,45 +536,12 @@ __WAVEFORM_CSS__
       <span class="info layout-toolbar-label">媒体</span>
       <label class="toggle"><input type="checkbox" id="overlay-toggle" checked> 预览字幕</label>
       <label class="toggle" title="在视频画面右上角预览当前时间的表情包"><input type="checkbox" id="sticker-overlay-toggle"> 预览表情包</label>
-      <div class="subtitle-preview-settings" id="subtitle-preview-settings">
-        <button type="button" id="subtitle-preview-settings-toggle" class="subtitle-preview-settings-toggle" title="字幕预览设置" aria-label="字幕预览设置" aria-expanded="false" aria-controls="subtitle-preview-settings-panel" aria-haspopup="dialog">⚙️</button>
-        <div class="subtitle-preview-settings-panel" id="subtitle-preview-settings-panel" role="dialog" aria-label="字幕预览设置" hidden>
-          <label class="subtitle-preview-setting-row" title="只影响播放器画面内的字幕预览，不改变字幕文本或时间">
-            <span>字幕大小</span>
-            <select id="subtitle-font-size">
-              <option value="auto" selected>自动（响应式）</option>
-              <option value="12">12 px</option>
-              <option value="14">14 px</option>
-              <option value="18">18 px</option>
-              <option value="22">22 px</option>
-              <option value="26">26 px</option>
-              <option value="32">32 px</option>
-              <option value="40">40 px</option>
-              <option value="48">48 px</option>
-              <option value="56">56 px</option>
-              <option value="64">64 px</option>
-              <option value="72">72 px</option>
-              <option value="84">84 px</option>
-              <option value="96">96 px</option>
-            </select>
-          </label>
-          <label class="subtitle-preview-setting-row" title="选择播放器画面内字幕预览使用的字体族">
-            <span>字体</span>
-            <select id="subtitle-font-family">
-              <option value="default" selected>默认无衬线</option>
-              <option value="yahei">微软雅黑 / 苹方</option>
-              <option value="hei">黑体</option>
-              <option value="song">宋体</option>
-              <option value="sans">Arial / Segoe UI</option>
-            </select>
-          </label>
-        </div>
-      </div>
+      <button type="button" id="style-manager-btn" title="管理 ASS 样式与颜色映射（决策 43）">样式…</button>
     </div>
     <div class="player-stage">
       __MEDIA_HTML__
       <div class="player-empty" id="player-empty">加载媒体后显示视频</div>
-      <div id="overlay" class="subtitle-overlay geo-box hidden" tabindex="0" role="group" aria-label="字幕预览位置。可拖动调整；方向键移动，按住 Shift 加速，按住 Alt 配合方向键调整大小，Enter 显示控制点，Esc 退出。"><span></span><span class="overlay-handle" data-handle="nw" aria-hidden="true"></span><span class="overlay-handle" data-handle="n" aria-hidden="true"></span><span class="overlay-handle" data-handle="ne" aria-hidden="true"></span><span class="overlay-handle" data-handle="e" aria-hidden="true"></span><span class="overlay-handle" data-handle="se" aria-hidden="true"></span><span class="overlay-handle" data-handle="s" aria-hidden="true"></span><span class="overlay-handle" data-handle="sw" aria-hidden="true"></span><span class="overlay-handle" data-handle="w" aria-hidden="true"></span></div>
+      <div id="overlay" class="subtitle-overlay hidden" tabindex="0" role="group" aria-label="字幕预览。拖动调整位置（写入该段 \pos）；双击打开样式面板。"><span></span></div>
     </div>
     <div class="media-controls" id="media-controls" role="group" aria-label="媒体播放控制">
       <button type="button" id="media-play-toggle" aria-label="播放" title="播放">▶</button>
@@ -763,6 +730,72 @@ __WAVEFORM_CSS__
     <div class="actions">
       <button id="sticker-root-cancel">取消</button>
       <button id="sticker-root-confirm" class="primary">应用</button>
+    </div>
+  </div>
+</div>
+
+<!-- 字幕样式面板 modal（决策 43：每段行内覆盖 / 样式编辑共用同一面板） -->
+<div class="modal-mask" id="style-panel-modal">
+  <div class="modal" style="width: 660px; max-width: 94vw;">
+    <h3 id="style-panel-title">字幕样式</h3>
+    <div id="style-panel-segment-info" class="modal-desc"></div>
+    <div class="ass-style-grid" id="style-panel-fields"></div>
+    <div class="actions">
+      <button id="style-panel-reset" class="danger">恢复默认</button>
+      <button id="style-panel-cancel">取消</button>
+      <button id="style-panel-ok" class="primary">应用</button>
+    </div>
+  </div>
+</div>
+
+<!-- 样式管理器 modal（决策 43：工程样式 / 本机 Aegisub 目录 / 颜色映射） -->
+<div class="modal-mask" id="style-manager-modal">
+  <div class="modal" style="width: 880px; max-width: 96vw;">
+    <h3>样式管理器</h3>
+    <div class="style-manager-lists">
+      <div class="style-manager-col">
+        <div class="style-manager-head">工程样式</div>
+        <ul class="style-manager-list" id="style-manager-project-list"></ul>
+        <div class="style-manager-actions">
+          <button id="style-manager-new">新建</button>
+          <button id="style-manager-edit">编辑</button>
+          <button id="style-manager-rename">重命名</button>
+          <button id="style-manager-delete" class="danger">删除</button>
+          <button id="style-manager-set-default">设为默认</button>
+        </div>
+      </div>
+      <div class="style-manager-col">
+        <div class="style-manager-head">本机目录（Aegisub ~/.aegisub/catalog）</div>
+        <div id="style-manager-catalog-info" class="modal-desc"></div>
+        <ul class="style-manager-list" id="style-manager-catalog-list"></ul>
+        <div class="style-manager-actions">
+          <button id="style-manager-import-catalog">导入所选目录样式</button>
+          <button id="style-manager-import-file">导入 .sty/.ass 文件…</button>
+          <input type="file" id="style-manager-file-input" accept=".sty,.ass" style="display:none">
+        </div>
+      </div>
+    </div>
+    <h4 class="style-manager-color-head">颜色映射（任务级：颜色 → 样式）</h4>
+    <div id="style-manager-color-map" class="style-manager-color-map"></div>
+    <div class="actions">
+      <button id="style-manager-close">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 同名样式冲突 modal（决策 43⑤：覆盖/跳过/改名 三选一） -->
+<div class="modal-mask" id="style-conflict-modal">
+  <div class="modal" style="width: 420px; max-width: 92vw;">
+    <h3>样式名冲突</h3>
+    <div class="modal-desc" id="style-conflict-desc"></div>
+    <div id="style-conflict-rename-row" style="display:none; margin: 8px 0;">
+      <label for="style-conflict-rename-input">新名称</label>
+      <input type="text" id="style-conflict-rename-input" autocomplete="off">
+    </div>
+    <div class="actions">
+      <button id="style-conflict-skip">跳过</button>
+      <button id="style-conflict-rename-btn">改名导入</button>
+      <button id="style-conflict-overwrite" class="primary">覆盖</button>
     </div>
   </div>
 </div>

@@ -975,3 +975,142 @@ test('applyPreviewGeometryDelta resize-w keeps right edge fixed at min-size', ()
   // right edge (x + width) should stay at original 0.2 + 0.4 = 0.6
   assert.ok(Math.abs((resized.x + resized.width) - 0.6) < 0.001);
 });
+
+// === ASS 样式工具（决策 43）===
+
+test('normalizeAssColor handles 6/8 hex, case, and rejects garbage', () => {
+  assert.equal(helpers.normalizeAssColor('&HFFFFFF&'), '&H00FFFFFF');
+  assert.equal(helpers.normalizeAssColor('&h00ffffff'), '&H00FFFFFF');
+  assert.equal(helpers.normalizeAssColor('&H193A85F0'), '&H193A85F0');
+  assert.equal(helpers.normalizeAssColor('&H193A85F0&'), '&H193A85F0');
+  assert.equal(helpers.normalizeAssColor('&HGGGGGG&'), null);
+  assert.equal(helpers.normalizeAssColor('red'), null);
+  assert.equal(helpers.normalizeAssColor(42), null);
+});
+
+test('assColorToHex converts BGR order to CSS #rrggbb', () => {
+  assert.equal(helpers.assColorToHex('&H193A85F0'), '#F0853A'); // 大写输出，CSS 大小写不敏感
+  assert.equal(helpers.assColorToHex('junk'), '#ffffff');
+});
+
+test('assColorToRgba converts alpha (00 = opaque)', () => {
+  assert.equal(helpers.assColorToRgba('&H00FFFFFF'), 'rgba(255,255,255,1)');
+  assert.equal(helpers.assColorToRgba('&H19FFA5CD'), 'rgba(205,165,255,0.9019607843137255)');
+});
+
+test('normalizeAssStyle fills defaults and drops unknown fields', () => {
+  const style = helpers.normalizeAssStyle({ name: 'lika', font_size: 50, bogus: 1 });
+  assert.equal(style.name, 'lika');
+  assert.equal(style.font_size, 50);
+  assert.equal(style.font, 'Arial');
+  assert.equal(style.outline_w, 2);
+  assert.equal(style.alignment, 2);
+  assert.equal('bogus' in style, false);
+  // 非法值回默认
+  const bad = helpers.normalizeAssStyle({ font_size: 'xxl', primary: 'nope', name: '' });
+  assert.equal(bad.font_size, 48);
+  assert.equal(bad.primary, '&H00FFFFFF');
+  assert.equal(bad.name, 'Default');
+});
+
+test('resolveSegmentStyleName follows style_ref > color binding > Default', () => {
+  const names = new Set(['Default', 'lika']);
+  const colorStyles = { red: 'lika', blue: 'missing' };
+  const segs = [{ start: 0, end: 100, text: 'head', color: { name: 'red' } }];
+  const refSeg = { start: 100, end: 200, text: 'x', color_ref: { name: 'red', headIdx: 0 } };
+  assert.equal(helpers.resolveSegmentStyleName(refSeg, segs, names, colorStyles), 'lika');
+  assert.equal(
+    helpers.resolveSegmentStyleName({ ...refSeg, style_ref: 'lika' }, segs, names, colorStyles),
+    'lika',
+  );
+  assert.equal(
+    helpers.resolveSegmentStyleName({ ...refSeg, style_ref: 'nope' }, segs, names, colorStyles),
+    'lika',
+  );
+  const blue = { start: 200, end: 300, text: 'b', color: { name: 'blue' } };
+  assert.equal(helpers.resolveSegmentStyleName(blue, segs, names, colorStyles), 'Default');
+  const plain = { start: 300, end: 400, text: 'p' };
+  assert.equal(helpers.resolveSegmentStyleName(plain, segs, names, colorStyles), 'Default');
+});
+
+test('assAlignmentToAnchor maps \an numbers', () => {
+  // vm 跨 realm：对象原型不同，只做属性断言
+  const a1 = helpers.assAlignmentToAnchor(1);
+  assert.equal(a1.x, 'left'); assert.equal(a1.y, 'bottom');
+  const a5 = helpers.assAlignmentToAnchor(5);
+  assert.equal(a5.x, 'center'); assert.equal(a5.y, 'middle');
+  const a9 = helpers.assAlignmentToAnchor(9);
+  assert.equal(a9.x, 'right'); assert.equal(a9.y, 'top');
+});
+
+test('assStyleToCss builds text-stroke/text-shadow approximation', () => {
+  const css = helpers.assStyleToCss({ font: '思源黑体 CN Heavy', font_size: 50, primary: '&H00FFFFFF', outline: '&H193A85F0', outline_w: 4, shadow: '&H910E0807', shadow_w: 5, bold: true });
+  assert.equal(css.fontFamily, '"思源黑体 CN Heavy"');
+  assert.equal(css.fontSize, '50px');
+  assert.equal(css.fontWeight, 700);
+  assert.equal(css.webkitTextStroke, '4px rgba(240,133,58,0.9019607843137255)');
+  assert.equal(css.textShadow, '5px 5px 0 rgba(7,8,14,0.43137254901960786)');
+  // 覆盖优先
+  const over = helpers.assStyleToCss({ font_size: 50 }, { font_size: 60, outline_w: 0 });
+  assert.equal(over.fontSize, '60px');
+  assert.equal('webkitTextStroke' in over, false);
+});
+
+test('playresToViewport / viewportToPlayres roundtrip', () => {
+  const rect = { width: 640, height: 360 };
+  const viewport = helpers.playresToViewport([960, 540], [1280, 720], rect);
+  assert.equal(viewport.left, 480); assert.equal(viewport.top, 270);
+  const back = helpers.viewportToPlayres(viewport, [1280, 720], rect);
+  assert.equal(back[0], 960); assert.equal(back[1], 540);
+  // 钳制
+  const clamped = helpers.viewportToPlayres({ left: 9999, top: -5 }, [1280, 720], rect);
+  assert.equal(clamped[0], 1280); assert.equal(clamped[1], 0);
+});
+
+test('normalizeOverride keeps valid fields and drops junk', () => {
+  const cleaned = helpers.normalizeOverride({
+    pos: [1.4, 2.6], fade: [100, 200], font_size: 60, outline: '&h00ff0000',
+    bogus: 1, margin_l: 9, pos_bad: [1],
+  });
+  assert.equal(cleaned.pos[0], 1); assert.equal(cleaned.pos[1], 3);
+  assert.equal(cleaned.fade[0], 100); assert.equal(cleaned.fade[1], 200);
+  assert.equal(cleaned.font_size, 60);
+  assert.equal(cleaned.outline, '&H00FF0000');
+  assert.equal('bogus' in cleaned, false);
+  assert.equal('margin_l' in cleaned, false); // 样式专属字段不可覆盖
+  assert.equal(Object.keys(helpers.normalizeOverride({ pos: [1] })).length, 0);
+  assert.equal(Object.keys(helpers.normalizeOverride(null)).length, 0);
+});
+
+test('assAnchorPoint derives anchor px from pos or alignment+margins', () => {
+  const rect = { width: 640, height: 360 };
+  const playres = [1280, 720];
+  const style = helpers.normalizeAssStyle({ alignment: 2, margin_l: 100, margin_r: 100, margin_v: 50 });
+  // 无 pos、an2（底中）：锚点在底部中央
+  const center = helpers.assAnchorPoint(null, 2, style, rect, playres);
+  assert.equal(center.left, 320);
+  assert.equal(center.top, 360 - 50 * 360 / 720);
+  // 有 pos：锚点 = pos 换算
+  const pos = helpers.assAnchorPoint([960, 540], 2, style, rect, playres);
+  assert.equal(pos.left, 480);
+  assert.equal(pos.top, 270);
+});
+
+test('assOverlayCss builds pos/alignment/margin positioning with anchor transform', () => {
+  const rect = { width: 640, height: 360 };
+  const playres = [1280, 720];
+  const style = helpers.normalizeAssStyle({ alignment: 2, margin_v: 40 });
+  // 无 pos、an2：left 50%、bottom 边距、translate(-50%,0)
+  const css = helpers.assOverlayCss(null, 2, style, rect, playres);
+  assert.equal(css.left, '50%');
+  assert.equal(css.bottom, `${40 * 360 / 720}px`);
+  assert.equal(css.transform, 'translate(-50%, 0)');
+  // 有 pos、an8（上中）：left/top = px、translate(-50%,-100%)
+  const posCss = helpers.assOverlayCss([640, 180], 8, style, rect, playres);
+  assert.equal(posCss.left, '320px');
+  assert.equal(posCss.top, '90px');
+  assert.equal(posCss.transform, 'translate(-50%, -100%)');
+  // 无 pos、an1（左下）：无 transform
+  const corner = helpers.assOverlayCss(null, 1, style, rect, playres);
+  assert.equal(corner.transform, '');
+});

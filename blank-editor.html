@@ -507,12 +507,12 @@
   }
   .player-empty.hidden, .cues-empty.hidden { display: none; }
   .subtitle-overlay {
-    position: absolute; left: 17.5%; right: auto; top: 76%; height: 16%; width: 65%;
+    position: absolute; left: 17.5%; right: auto; top: 76%; height: auto; width: auto;
     display: flex; align-items: center; justify-content: center;
-    text-align: center; pointer-events: none;
-    z-index: 10; padding: 0 12px; box-sizing: border-box;
+    text-align: center; pointer-events: auto; cursor: move;
+    z-index: 10; padding: 0; box-sizing: border-box;
   }
-  /* 几何可编辑时由 .geo-box.geometry-enabled 接收指针；文字 span 仍不拦截，避免选中文本干扰拖动 */
+  /* 决策 43：文字 span 按 ASS 样式渲染（内联样式由 JS 驱动）；药丸底只在无样式时显示 */
   .subtitle-overlay span {
     display: inline-block; max-width: 90%;
     background: rgba(0,0,0,0.65);
@@ -520,8 +520,14 @@
     padding: 6px 14px; border-radius: var(--radius-sm);
     font-size: 18px;
     line-height: 1.3; white-space: pre-wrap; word-break: break-word;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
     pointer-events: none;
+  }
+  /* ASS 样式模式（决策 43）：去掉药丸底/描边模拟交给 text-stroke，动画用 opacity */
+  .subtitle-overlay span.ass-styled {
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
+    transition: none;
   }
   .subtitle-overlay.hidden { display: none; }
   /* 几何编辑盒（字幕预览 / 表情包预览共用）：
@@ -1155,6 +1161,47 @@
   .cues-container.hide-cue-time .cue .time,
   .cues-container.hide-cue-sticker .cue .sticker-slot,
   .cues-container.hide-cue-charcount .cue .charcount { display: none; }
+  /* 译文行（决策 42）：原文下方的次级行，可随显示开关整体隐藏 */
+  .cues-container.hide-cue-translation .cue .text .translation { display: none; }
+  .cue .text .translation {
+    display: block; margin-top: 2px; font-size: 0.88em;
+    color: var(--text-secondary); white-space: pre-wrap;
+    border-top: 1px dashed var(--border, transparent); padding-top: 2px;
+  }
+  .cue .text .translation mark { background: var(--amber); color: var(--mark-fg); padding: 0 2px; border-radius: 2px; }
+  /* 当前字幕面板：译文编辑区（决策 42） */
+  .cue-panel-translation-wrap {
+    display: flex; gap: 8px; align-items: stretch;
+    padding: 0 4px 4px 4px;
+  }
+  .cue-panel-translation-wrap textarea {
+    flex: 1; resize: vertical; min-height: 32px;
+    font-size: 13px; background: var(--bg-input); color: var(--text);
+    border: 1px solid var(--border, #444); border-radius: 4px; padding: 4px 6px;
+  }
+  .cue-panel-translation-wrap button {
+    white-space: nowrap; align-self: center;
+  }
+  /* 工具栏：翻译进度与批量翻译菜单 */
+  .translate-progress {
+    font-size: 12px; color: var(--amber); white-space: nowrap;
+    padding: 0 6px; align-self: center;
+  }
+  .translate-settings-readonly {
+    font-size: 12px; color: var(--text-secondary); cursor: default !important;
+    white-space: normal; max-width: 260px;
+  }
+  .translate-settings-readonly.translate-unconfigured { color: var(--danger, #e74c3c); }
+  /* 服务端导出：颜色勾选弹层 */
+  .color-export-popover {
+    position: fixed; z-index: 1200; min-width: 200px;
+    background: var(--bg-panel, #222); border: 1px solid var(--border, #444);
+    border-radius: 6px; padding: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  }
+  .color-export-title { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+  .color-export-checks { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+  .color-export-check { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+  .color-export-actions { display: flex; gap: 8px; justify-content: flex-end; }
   .cue .text[contenteditable] {
     outline: 1px dashed var(--amber); padding: 2px 4px;
     background: var(--bg-input); min-width: 50%; white-space: pre-wrap;
@@ -1578,6 +1625,37 @@
   .gap-remove-list::-webkit-scrollbar-thumb:hover,
   .gap-remove-panel-body::-webkit-scrollbar-thumb:hover,
   .sticker-grid::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); background-clip: padding-box; }
+
+/* === ASS 样式面板 / 样式管理器（决策 43）=== */
+/* 面板字段多、比视口高时模态框内滚动，保证操作按钮可达 */
+#style-panel-modal .modal, #style-manager-modal .modal {
+  max-height: 92vh;
+  overflow: auto;
+}
+.ass-style-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; margin: 12px 0; }
+.ass-field { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.ass-field.wide { grid-column: 1 / -1; }
+.ass-field-label { color: #aaa; min-width: 64px; flex: none; }
+.ass-field input[type="text"], .ass-field select { flex: 1; min-width: 0; }
+.ass-field input[type="color"] { width: 42px; height: 26px; padding: 0; border: 1px solid #444; border-radius: 4px; background: none; cursor: pointer; }
+.ass-field input[type="checkbox"] { width: 16px; height: 16px; flex: none; }
+.ass-align-grid { display: grid; grid-template-columns: repeat(3, 30px); grid-template-rows: repeat(3, 26px); gap: 4px; }
+.ass-align-cell { padding: 0; cursor: pointer; background: #262626; color: #ccc; border: 1px solid #444; border-radius: 4px; }
+.ass-align-cell.active { background: #4a9eff; color: #fff; border-color: #4a9eff; }
+.style-manager-lists { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 12px 0; }
+.style-manager-col { min-width: 0; }
+.style-manager-head { font-weight: 600; margin-bottom: 6px; color: #ddd; }
+.style-manager-list { list-style: none; margin: 0 0 8px; padding: 4px; border: 1px solid #3a3a3a; border-radius: 6px; max-height: 220px; overflow: auto; }
+.style-manager-list li { padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 13px; color: #ddd; }
+.style-manager-list li:hover { background: rgba(255,255,255,0.06); }
+.style-manager-list li.selected { background: rgba(74,158,255,0.28); }
+.style-manager-list li.default::after { content: "（默认）"; color: #888; font-size: 11px; }
+.style-manager-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.style-manager-color-head { margin: 10px 0 6px; }
+.style-manager-color-map { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 20px; }
+.style-manager-color-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #ddd; }
+.style-manager-color-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex: none; }
+.style-manager-color-row select { flex: 1; min-width: 0; }
 /* Waveform-specific styles live here so the same UI can be reused by a desktop shell. */
 
 .toolbar.main-toolbar {
@@ -2325,7 +2403,7 @@
 
 <h1>
   <span class="media-name empty" id="media-name" title="">未加载媒体</span>
-  <span class="gen-time" id="gen-time" data-label="生成时间">生成时间 2026-08-10 00:49</span>
+  <span class="gen-time" id="gen-time" data-label="生成时间">生成时间 2026-08-13 15:54</span>
   <span class="json-name empty" id="json-name" title="点击复制工程文件名">未加载工程</span>
 </h1>
 <div class="toolbar row-actions">
@@ -2364,6 +2442,16 @@
   </span>
 
   <span class="right-group">
+    <span class="translate-progress" id="translate-progress" hidden></span>
+    <span class="dropdown" id="translate-dropdown" hidden>
+      <button type="button" id="translate-btn" title="批量翻译字幕（译文写回工程，决策 42）">翻译 ▾</button>
+      <div class="dropdown-menu" id="translate-menu">
+        <div class="dropdown-item" id="translate-missing">只翻空缺（原文改动过的段视为空缺）</div>
+        <div class="dropdown-item" id="translate-all">全部重翻</div>
+        <div class="dropdown-separator"></div>
+        <div class="dropdown-item translate-settings-readonly" id="translate-settings-readonly" title="翻译设置由流水线预设传入，只读；修改请到主 UI 预设/任务设置"></div>
+      </div>
+    </span>
     <button id="download-srt">导出字幕</button>
     <span class="dropdown" id="subtitle-export-dropdown" hidden>
       <button id="subtitle-export-btn" title="导出完整字幕或按颜色分别导出字幕">导出字幕 ▾</button>
@@ -2371,8 +2459,18 @@
         <div class="dropdown-item" id="download-full-srt">导出完整字幕（SRT）</div>
         <div class="dropdown-item" id="download-color-srt">按颜色导出字幕（SRT）</div>
         <div class="dropdown-item" id="download-plain-text">导出纯文本（TXT）</div>
+        <div class="dropdown-separator" id="export-server-separator" hidden></div>
+        <div class="dropdown-item" id="export-server-note" hidden title="服务端导出直接写入工程同目录（主流程自动识别），全量原文/译文固定导出"></div>
       </div>
     </span>
+    <div class="dropdown-menu color-export-popover" id="color-export-popover" hidden>
+      <div class="color-export-title">选择要导出的颜色（全量原文/译文固定导出）</div>
+      <div class="color-export-checks" id="color-export-checks"></div>
+      <div class="color-export-actions">
+        <button type="button" id="color-export-select-all">全选</button>
+        <button type="button" id="color-export-confirm">导出</button>
+      </div>
+    </div>
     <button id="download-json">导出工程</button>
     <span class="dropdown gap-removed-export-dropdown" id="gap-removed-export-dropdown" hidden>
       <button id="gap-removed-export-btn" title="导出应用当前空隙移除结果的字幕、时间线或保留区域计划">导出去空隙版本 ▾</button>
@@ -2817,45 +2915,12 @@
       <span class="info layout-toolbar-label">媒体</span>
       <label class="toggle"><input type="checkbox" id="overlay-toggle" checked> 预览字幕</label>
       <label class="toggle" title="在视频画面右上角预览当前时间的表情包"><input type="checkbox" id="sticker-overlay-toggle"> 预览表情包</label>
-      <div class="subtitle-preview-settings" id="subtitle-preview-settings">
-        <button type="button" id="subtitle-preview-settings-toggle" class="subtitle-preview-settings-toggle" title="字幕预览设置" aria-label="字幕预览设置" aria-expanded="false" aria-controls="subtitle-preview-settings-panel" aria-haspopup="dialog">⚙️</button>
-        <div class="subtitle-preview-settings-panel" id="subtitle-preview-settings-panel" role="dialog" aria-label="字幕预览设置" hidden>
-          <label class="subtitle-preview-setting-row" title="只影响播放器画面内的字幕预览，不改变字幕文本或时间">
-            <span>字幕大小</span>
-            <select id="subtitle-font-size">
-              <option value="auto" selected>自动（响应式）</option>
-              <option value="12">12 px</option>
-              <option value="14">14 px</option>
-              <option value="18">18 px</option>
-              <option value="22">22 px</option>
-              <option value="26">26 px</option>
-              <option value="32">32 px</option>
-              <option value="40">40 px</option>
-              <option value="48">48 px</option>
-              <option value="56">56 px</option>
-              <option value="64">64 px</option>
-              <option value="72">72 px</option>
-              <option value="84">84 px</option>
-              <option value="96">96 px</option>
-            </select>
-          </label>
-          <label class="subtitle-preview-setting-row" title="选择播放器画面内字幕预览使用的字体族">
-            <span>字体</span>
-            <select id="subtitle-font-family">
-              <option value="default" selected>默认无衬线</option>
-              <option value="yahei">微软雅黑 / 苹方</option>
-              <option value="hei">黑体</option>
-              <option value="song">宋体</option>
-              <option value="sans">Arial / Segoe UI</option>
-            </select>
-          </label>
-        </div>
-      </div>
+      <button type="button" id="style-manager-btn" title="管理 ASS 样式与颜色映射（决策 43）">样式…</button>
     </div>
     <div class="player-stage">
       <audio id="player" preload="metadata" style="width:100%;display:block;"></audio>
       <div class="player-empty" id="player-empty">加载媒体后显示视频</div>
-      <div id="overlay" class="subtitle-overlay geo-box hidden" tabindex="0" role="group" aria-label="字幕预览位置。可拖动调整；方向键移动，按住 Shift 加速，按住 Alt 配合方向键调整大小，Enter 显示控制点，Esc 退出。"><span></span><span class="overlay-handle" data-handle="nw" aria-hidden="true"></span><span class="overlay-handle" data-handle="n" aria-hidden="true"></span><span class="overlay-handle" data-handle="ne" aria-hidden="true"></span><span class="overlay-handle" data-handle="e" aria-hidden="true"></span><span class="overlay-handle" data-handle="se" aria-hidden="true"></span><span class="overlay-handle" data-handle="s" aria-hidden="true"></span><span class="overlay-handle" data-handle="sw" aria-hidden="true"></span><span class="overlay-handle" data-handle="w" aria-hidden="true"></span></div>
+      <div id="overlay" class="subtitle-overlay hidden" tabindex="0" role="group" aria-label="字幕预览。拖动调整位置（写入该段 \pos）；双击打开样式面板。"><span></span></div>
     </div>
     <div class="media-controls" id="media-controls" role="group" aria-label="媒体播放控制">
       <button type="button" id="media-play-toggle" aria-label="播放" title="播放">▶</button>
@@ -2901,6 +2966,10 @@
           <span>字/秒 <b id="cue-panel-chars-per-second">0.00</b></span>
         </div>
       </div>
+      <div class="cue-panel-translation-wrap">
+        <textarea id="cue-panel-translation" rows="2" placeholder="译文（空 = 未翻译；批量翻译只翻空缺）…"></textarea>
+        <button type="button" id="cue-panel-translate-one" title="只翻译当前这一条（走服务端翻译 API）">翻译此条</button>
+      </div>
       <div class="cue-panel-sticker-wrap">
         <div class="cue-panel-sticker" id="cue-panel-sticker" title="点击替换；右键删除"></div>
         <button type="button" id="cue-panel-add-sticker">＋ 表情包</button>
@@ -2943,6 +3012,7 @@
       </span>
       <span class="info">显示 <b id="visible-count">0</b> / <b id="total-count">0</b></span>
       <label class="toggle"><input type="checkbox" id="hide-disabled-toggle"> 隐藏禁用</label>
+      <label class="toggle" id="show-translation-toggle-wrap" hidden><input type="checkbox" id="show-translation-toggle"> 显示译文</label>
       <span class="sep"></span>
       <button id="replace-btn">批量替换…</button>
       <span class="sep"></span>
@@ -3039,6 +3109,72 @@
     <div class="actions">
       <button id="sticker-root-cancel">取消</button>
       <button id="sticker-root-confirm" class="primary">应用</button>
+    </div>
+  </div>
+</div>
+
+<!-- 字幕样式面板 modal（决策 43：每段行内覆盖 / 样式编辑共用同一面板） -->
+<div class="modal-mask" id="style-panel-modal">
+  <div class="modal" style="width: 660px; max-width: 94vw;">
+    <h3 id="style-panel-title">字幕样式</h3>
+    <div id="style-panel-segment-info" class="modal-desc"></div>
+    <div class="ass-style-grid" id="style-panel-fields"></div>
+    <div class="actions">
+      <button id="style-panel-reset" class="danger">恢复默认</button>
+      <button id="style-panel-cancel">取消</button>
+      <button id="style-panel-ok" class="primary">应用</button>
+    </div>
+  </div>
+</div>
+
+<!-- 样式管理器 modal（决策 43：工程样式 / 本机 Aegisub 目录 / 颜色映射） -->
+<div class="modal-mask" id="style-manager-modal">
+  <div class="modal" style="width: 880px; max-width: 96vw;">
+    <h3>样式管理器</h3>
+    <div class="style-manager-lists">
+      <div class="style-manager-col">
+        <div class="style-manager-head">工程样式</div>
+        <ul class="style-manager-list" id="style-manager-project-list"></ul>
+        <div class="style-manager-actions">
+          <button id="style-manager-new">新建</button>
+          <button id="style-manager-edit">编辑</button>
+          <button id="style-manager-rename">重命名</button>
+          <button id="style-manager-delete" class="danger">删除</button>
+          <button id="style-manager-set-default">设为默认</button>
+        </div>
+      </div>
+      <div class="style-manager-col">
+        <div class="style-manager-head">本机目录（Aegisub ~/.aegisub/catalog）</div>
+        <div id="style-manager-catalog-info" class="modal-desc"></div>
+        <ul class="style-manager-list" id="style-manager-catalog-list"></ul>
+        <div class="style-manager-actions">
+          <button id="style-manager-import-catalog">导入所选目录样式</button>
+          <button id="style-manager-import-file">导入 .sty/.ass 文件…</button>
+          <input type="file" id="style-manager-file-input" accept=".sty,.ass" style="display:none">
+        </div>
+      </div>
+    </div>
+    <h4 class="style-manager-color-head">颜色映射（任务级：颜色 → 样式）</h4>
+    <div id="style-manager-color-map" class="style-manager-color-map"></div>
+    <div class="actions">
+      <button id="style-manager-close">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 同名样式冲突 modal（决策 43⑤：覆盖/跳过/改名 三选一） -->
+<div class="modal-mask" id="style-conflict-modal">
+  <div class="modal" style="width: 420px; max-width: 92vw;">
+    <h3>样式名冲突</h3>
+    <div class="modal-desc" id="style-conflict-desc"></div>
+    <div id="style-conflict-rename-row" style="display:none; margin: 8px 0;">
+      <label for="style-conflict-rename-input">新名称</label>
+      <input type="text" id="style-conflict-rename-input" autocomplete="off">
+    </div>
+    <div class="actions">
+      <button id="style-conflict-skip">跳过</button>
+      <button id="style-conflict-rename-btn">改名导入</button>
+      <button id="style-conflict-overwrite" class="primary">覆盖</button>
     </div>
   </div>
 </div>
@@ -3966,6 +4102,246 @@
     };
   }
 
+  // === ASS 样式工具（决策 43；与 Python ass_style.py / ass_export.py 行为对齐）===
+
+  // Aegisub 默认新文件分辨率（无媒体探测时的 PlayRes 回落）
+  const DEFAULT_PLAYRES = [1280, 720];
+
+  // Aegisub AssStyle 默认值（JSON 镜像）
+  const ASS_STYLE_DEFAULTS = {
+    name: 'Default',
+    font: 'Arial',
+    font_size: 48,
+    primary: '&H00FFFFFF',
+    secondary: '&H000000FF',
+    outline: '&H00000000',
+    shadow: '&H00000000',
+    bold: false,
+    italic: false,
+    underline: false,
+    strikeout: false,
+    scale_x: 100,
+    scale_y: 100,
+    spacing: 0,
+    angle: 0,
+    border_style: 1,
+    outline_w: 2,
+    shadow_w: 2,
+    alignment: 2,
+    margin_l: 10,
+    margin_r: 10,
+    margin_v: 10,
+    encoding: 1,
+  };
+
+  const ASS_COLOR_RE = /^&[hH]([0-9A-Fa-f]{6})([0-9A-Fa-f]{2})?&?$/;
+
+  // 无对应 override 标签的样式专属字段（与 ass_export.py _OVERRIDE_FIELDS 对齐）
+  const ASS_STYLE_ONLY_FIELDS = new Set([
+    'name', 'border_style', 'margin_l', 'margin_r', 'margin_v', 'encoding',
+  ]);
+
+  function normalizeAssColor(color) {
+    // `&H...&` 6/8 位 → 规范化 8 位大写（前两位 alpha + 后六位 BGR）；非法返回 null
+    // 注意：8 位输入时 alpha 是**开头**两位（&HAABBGGRR&），不是尾部
+    if (typeof color !== 'string') return null;
+    const match = ASS_COLOR_RE.exec(color.trim());
+    if (!match) return null;
+    const value = (match[2] ? match[1] + match[2] : match[1]);
+    const full = (value.length === 6 ? `00${value}` : value).toUpperCase();
+    return `&H${full}`;
+  }
+
+  function assColorToHex(color) {
+    // `&H{A}{B}{G}{R}` → CSS #rrggbb（忽略 alpha；供 <input type=color> 使用）
+    const normalized = normalizeAssColor(color);
+    if (!normalized) return '#ffffff';
+    const bgr = normalized.slice(4);
+    return `#${bgr.slice(4, 6)}${bgr.slice(2, 4)}${bgr.slice(0, 2)}`;
+  }
+
+  function assColorToRgba(color) {
+    // `&H{A}{B}{G}{R}` → CSS rgba()（alpha 0 = 不透明）
+    const normalized = normalizeAssColor(color);
+    if (!normalized) return 'rgba(255,255,255,1)';
+    const hex = normalized.slice(2);
+    const a = parseInt(hex.slice(0, 2), 16) / 255;
+    const b = parseInt(hex.slice(2, 4), 16);
+    const g = parseInt(hex.slice(4, 6), 16);
+    const r = parseInt(hex.slice(6, 8), 16);
+    return `rgba(${r},${g},${b},${1 - a})`;
+  }
+
+  function normalizeAssStyle(style) {
+    // 缺失/非法字段按 Aegisub 默认补齐（与 Python format_style_line 容错一致）
+    const merged = { ...ASS_STYLE_DEFAULTS };
+    if (!style || typeof style !== 'object') return merged;
+    for (const [key, value] of Object.entries(style)) {
+      if (!(key in ASS_STYLE_DEFAULTS)) continue;
+      const fallback = ASS_STYLE_DEFAULTS[key];
+      if (typeof fallback === 'number') {
+        merged[key] = (typeof value === 'number' && Number.isFinite(value)) ? value : fallback;
+      } else if (typeof fallback === 'boolean') {
+        merged[key] = typeof value === 'boolean' ? value : fallback;
+      } else if (typeof fallback === 'string') {
+        if (key === 'name' || key === 'font') {
+          merged[key] = typeof value === 'string' && value ? value : fallback;
+        } else {
+          merged[key] = normalizeAssColor(value) || fallback;
+        }
+      }
+    }
+    return merged;
+  }
+
+  function resolveSegmentStyleName(segment, segments, styleNames, colorStyles) {
+    // 决策 43 解析链：段 style_ref > color_styles[有效颜色] > Default
+    const ref = segment?.style_ref;
+    if (typeof ref === 'string' && ref.trim() && styleNames.has(ref.trim())) return ref.trim();
+    const color = effectiveColorName(segment, segments);
+    const bound = color ? colorStyles?.[color] : null;
+    if (typeof bound === 'string' && bound.trim() && styleNames.has(bound.trim())) return bound.trim();
+    return 'Default';
+  }
+
+  function assAlignmentToAnchor(alignment) {
+    // \an 1-9 → 锚点（preview 定位用：pos 落在盒子的哪个角/边/中心）
+    const column = ((alignment - 1) % 3);   // 0=左 1=中 2=右
+    const row = Math.floor((alignment - 1) / 3); // 0=下 1=中 2=上
+    return {
+      x: column === 0 ? 'left' : column === 1 ? 'center' : 'right',
+      y: row === 0 ? 'bottom' : row === 1 ? 'middle' : 'top',
+    };
+  }
+
+  function assStyleToCss(style, overrides) {
+    // 样式 + 行内覆盖 → CSS 近似（决策 43⑥：text-stroke/text-shadow 模拟描边阴影）
+    const base = normalizeAssStyle(style);
+    const ov = (overrides && typeof overrides === 'object') ? overrides : {};
+    const pick = (key, fallback) => (key in ov && ov[key] !== null && ov[key] !== undefined
+      ? ov[key] : fallback);
+    const fontSize = Number(pick('font_size', base.font_size));
+    const outlineW = Number(pick('outline_w', base.outline_w));
+    const shadowW = Number(pick('shadow_w', base.shadow_w));
+    const css = {
+      fontFamily: `"${pick('font', base.font)}"`,
+      fontSize: `${Math.max(1, Number.isFinite(fontSize) ? fontSize : base.font_size)}px`,
+      color: assColorToRgba(pick('primary', base.primary)),
+      fontWeight: pick('bold', base.bold) ? 700 : 400,
+      fontStyle: pick('italic', base.italic) ? 'italic' : 'normal',
+      textDecoration: [
+        pick('underline', base.underline) ? 'underline' : '',
+        pick('strikeout', base.strikeout) ? 'line-through' : '',
+      ].filter(Boolean).join(' '),
+    };
+    const outlineColor = pick('outline', base.outline);
+    if (Number.isFinite(outlineW) && outlineW > 0) {
+      css.webkitTextStroke = `${outlineW}px ${assColorToRgba(outlineColor)}`;
+      css.paintOrder = 'stroke fill';
+    }
+    const shadowColor = pick('shadow', base.shadow);
+    if (Number.isFinite(shadowW) && shadowW > 0) {
+      css.textShadow = `${shadowW}px ${shadowW}px 0 ${assColorToRgba(shadowColor)}`;
+    }
+    return css;
+  }
+
+  function assAnchorPoint(pos, alignment, style, rect, playres) {
+    // 字幕锚点（\an 语义下 pos/对齐+边距 决定）在播放器矩形内的 px 坐标。
+    // 拖动起始用它反推 \pos，保证「无 pos 的字幕从视觉位置开始拖」不跳变。
+    const anchor = assAlignmentToAnchor(alignment);
+    const sx = rect.width / playres[0];
+    const sy = rect.height / playres[1];
+    let left;
+    let top;
+    if (pos && Number.isFinite(pos[0]) && Number.isFinite(pos[1])) {
+      const vp = playresToViewport(pos, playres, rect);
+      left = vp.left;
+      top = vp.top;
+    } else {
+      left = anchor.x === 'left' ? style.margin_l * sx
+        : anchor.x === 'center' ? rect.width / 2
+          : rect.width - style.margin_r * sx;
+      top = anchor.y === 'top' ? style.margin_v * sy
+        : anchor.y === 'middle' ? rect.height / 2
+          : rect.height - style.margin_v * sy;
+    }
+    return { left, top };
+  }
+
+  function assOverlayCss(pos, alignment, style, rect, playres) {
+    // 字幕 overlay 定位 CSS：pos（PlayRes）或样式对齐+边距；锚点按 \an 用 translate 补偿
+    const anchor = assAlignmentToAnchor(alignment);
+    const css = { left: 'auto', right: 'auto', top: 'auto', bottom: 'auto', transform: '' };
+    let tx = '0';
+    let ty = '0';
+    if (pos && Number.isFinite(pos[0]) && Number.isFinite(pos[1])) {
+      const vp = playresToViewport(pos, playres, rect);
+      css.left = `${vp.left}px`;
+      css.top = `${vp.top}px`;
+      if (anchor.x === 'center') tx = '-50%';
+      else if (anchor.x === 'right') tx = '-100%';
+      if (anchor.y === 'middle') ty = '-50%';
+      else if (anchor.y === 'top') ty = '-100%';
+    } else {
+      const sx = rect.width / playres[0];
+      const sy = rect.height / playres[1];
+      if (anchor.x === 'left') css.left = `${style.margin_l * sx}px`;
+      else if (anchor.x === 'center') { css.left = '50%'; tx = '-50%'; }
+      else css.right = `${style.margin_r * sx}px`;
+      if (anchor.y === 'top') css.top = `${style.margin_v * sy}px`;
+      else if (anchor.y === 'middle') { css.top = '50%'; ty = '-50%'; }
+      else css.bottom = `${style.margin_v * sy}px`;
+    }
+    css.transform = (tx === '0' && ty === '0') ? '' : `translate(${tx}, ${ty})`;
+    return css;
+  }
+
+  function playresToViewport(pos, playres, rect) {
+    // PlayRes 绝对坐标 → 播放器矩形内的 px 坐标（含中心锚点偏移由调用方处理）
+    const x = Number(pos?.[0]);
+    const y = Number(pos?.[1]);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return {
+      left: x * rect.width / playres[0],
+      top: y * rect.height / playres[1],
+    };
+  }
+
+  function viewportToPlayres(offset, playres, rect) {
+    // 播放器矩形内 px 偏移 → PlayRes 绝对坐标（四舍五入 + 钳制）
+    const x = Math.max(0, Math.min(playres[0], Math.round(offset.left * playres[0] / rect.width)));
+    const y = Math.max(0, Math.min(playres[1], Math.round(offset.top * playres[1] / rect.height)));
+    return [x, y];
+  }
+
+  function normalizeOverride(overrides) {
+    // 行内覆盖清洗：只留合法字段；pos/fade 必须是二元数字数组；非法字段丢弃。
+    // 样式专属字段（border_style/边距/encoding/name）无对应 override 标签，忽略。
+    if (!overrides || typeof overrides !== 'object') return {};
+    const cleaned = {};
+    for (const [key, value] of Object.entries(overrides)) {
+      if (key === 'pos' || key === 'fade') {
+        if (Array.isArray(value) && value.length === 2
+            && value.every((n) => typeof n === 'number' && Number.isFinite(n))) {
+          cleaned[key] = [Math.round(value[0]), Math.round(value[1])];
+        }
+        continue;
+      }
+      if (!(key in ASS_STYLE_DEFAULTS) || ASS_STYLE_ONLY_FIELDS.has(key)) continue;
+      const fallback = ASS_STYLE_DEFAULTS[key];
+      if (typeof fallback === 'number' && typeof value === 'number' && Number.isFinite(value)) {
+        cleaned[key] = value;
+      } else if (typeof fallback === 'boolean' && typeof value === 'boolean') {
+        cleaned[key] = value;
+      } else if (typeof fallback === 'string' && typeof value === 'string') {
+        if (key === 'name' || key === 'font') cleaned[key] = value;
+        else if (normalizeAssColor(value)) cleaned[key] = normalizeAssColor(value);
+      }
+    }
+    return cleaned;
+  }
+
   window.AsrEditorUtils = {
     buildReplacementPreview,
     countTextUnits,
@@ -4010,6 +4386,20 @@
     clampPreviewGeometry,
     previewGeometryToCss,
     applyPreviewGeometryDelta,
+    ASS_STYLE_DEFAULTS,
+    DEFAULT_PLAYRES,
+    normalizeAssColor,
+    assColorToHex,
+    assColorToRgba,
+    normalizeAssStyle,
+    resolveSegmentStyleName,
+    assAlignmentToAnchor,
+    assStyleToCss,
+    playresToViewport,
+    viewportToPlayres,
+    assAnchorPoint,
+    assOverlayCss,
+    normalizeOverride,
   };
 })();
 (function initMaweI18n(global) {
@@ -4302,7 +4692,87 @@
     '拖动调整布局区域比例': 'Drag to resize layout areas',
     '拖动调整左右区域宽度': 'Drag to resize left and right areas',
     '拖动调整视频与当前字幕高度': 'Drag to resize video and current-subtitle heights',
-    '拖动调整当前字幕与字幕列表高度': 'Drag to resize current-subtitle and subtitle-list heights'
+    '拖动调整当前字幕与字幕列表高度': 'Drag to resize current-subtitle and subtitle-list heights',
+    // === ASS 样式（决策 43）===
+    '样式…': 'Styles…',
+    '管理 ASS 样式与颜色映射（决策 43）': 'Manage ASS styles and color mappings (Decision 43)',
+    '字幕预览。拖动调整位置（写入该段 \\pos）；双击打开样式面板。': 'Subtitle preview. Drag to reposition (writes \\pos for this segment); double-click to open the style panel.',
+    '样式管理器': 'Style Manager',
+    '工程样式': 'Project styles',
+    '本机目录（Aegisub ~/.aegisub/catalog）': 'Local catalog (Aegisub ~/.aegisub/catalog)',
+    '新建': 'New',
+    '编辑': 'Edit',
+    '重命名': 'Rename',
+    '删除': 'Delete',
+    '设为默认': 'Set as default',
+    '导入所选目录样式': 'Import selected catalog styles',
+    '导入 .sty/.ass 文件…': 'Import .sty/.ass file…',
+    '颜色映射（任务级：颜色 → 样式）': 'Color mapping (per project: color → style)',
+    '关闭': 'Close',
+    '字幕样式': 'Subtitle style',
+    '恢复默认': 'Reset to defaults',
+    '应用': 'Apply',
+    '样式名冲突': 'Style name conflict',
+    '跳过': 'Skip',
+    '改名导入': 'Import renamed',
+    '覆盖': 'Overwrite',
+    '新名称': 'New name',
+    '样式': 'Style',
+    '继承颜色绑定': 'Inherit color binding',
+    '字体': 'Font',
+    '字号': 'Font size',
+    '粗体': 'Bold',
+    '斜体': 'Italic',
+    '下划线': 'Underline',
+    '删除线': 'Strikeout',
+    '主色': 'Primary',
+    '次色': 'Secondary',
+    '描边色': 'Outline',
+    '阴影色': 'Shadow',
+    '描边宽度': 'Outline width',
+    '阴影距离': 'Shadow distance',
+    '缩放 X%': 'Scale X%',
+    '缩放 Y%': 'Scale Y%',
+    '字距': 'Spacing',
+    '旋转°': 'Angle',
+    '对齐': 'Alignment',
+    '位置（PlayRes）': 'Position (PlayRes)',
+    '清除位置': 'Clear position',
+    '淡入/淡出 ms': 'Fade in/out ms',
+    '无绑定': 'None',
+    '第': 'Segment',
+    '条': '',
+    '编辑样式': 'Edit style',
+    '改动对所有引用该样式的字幕生效': 'Changes apply to every subtitle using this style',
+    '修改字幕样式': 'Edit subtitle style',
+    '修改样式': 'Edit style',
+    '重置字幕样式': 'Reset subtitle style',
+    '重置样式': 'Reset style',
+    '已恢复该段的样式默认值': 'Restored default style for this segment',
+    '已恢复样式默认值': 'Restored style defaults',
+    '拖动字幕位置': 'Drag subtitle position',
+    '导入样式': 'Import styles',
+    '新建样式': 'New style',
+    '重命名样式': 'Rename style',
+    '删除样式': 'Delete style',
+    '设为默认样式': 'Set as default style',
+    '颜色样式映射': 'Color-style mapping',
+    '仅服务器编辑器支持读取本机 Aegisub 目录': 'Only the server editor can read the local Aegisub catalog',
+    '目录不存在': 'Directory not found',
+    '读取失败': 'Failed to load',
+    '没有解析到任何样式': 'No styles were parsed',
+    '导入完成': 'Import complete',
+    '解析失败': 'Parse failed',
+    '先选择一个目录': 'Select a catalog first',
+    '先在右侧选择一个目录': 'Select a catalog on the right first',
+    '先在左侧选择一个样式': 'Select a style on the left first',
+    '样式名已存在': 'A style with this name already exists',
+    '新样式名称': 'New style name',
+    '名称无效或已存在': 'Invalid or duplicate name',
+    'Default 样式不可删除': 'The Default style cannot be deleted',
+    '它已经是默认样式': 'It is already the default style',
+    '导入完成（跳过损坏行': 'Import complete (skipped damaged lines: ',
+    '已导入样式目录': 'Imported style catalog',
   };
 
   const textOriginals = new WeakMap();
@@ -7671,6 +8141,7 @@ function readEditorSettings() {
       cueListShowTime: saved.cueListShowTime !== false,
       cueListShowSticker: saved.cueListShowSticker !== false,
       cueListShowCharcount: saved.cueListShowCharcount !== false,
+      cueListShowTranslation: saved.cueListShowTranslation !== false,
       cueListAutoScrollOnClick: saved.cueListAutoScrollOnClick !== false,
       cueEditorShowNavigation: saved.cueEditorShowNavigation === true,
       cueEditorShowTimeActions: saved.cueEditorShowTimeActions === true,
@@ -7821,9 +8292,49 @@ function snapshotSegments() {
   // _dirty 也保留，恢复后能再次导出"工程文件"时正确标记
   return JSON.parse(JSON.stringify(DATA.segments));
 }
+function snapshotStyles() {
+  // 决策 43：样式目录/颜色映射随 segments 记录一起快照（样式管理器操作可撤销）
+  return {
+    styles: DATA.styles ? JSON.parse(JSON.stringify(DATA.styles)) : null,
+    colorStyles: DATA.color_styles ? JSON.parse(JSON.stringify(DATA.color_styles)) : null,
+  };
+}
 function pushUndo(label) {
-  editorHistory.push({ kind: 'segments', label: label || '编辑', segs: snapshotSegments() });
+  editorHistory.push({ kind: 'segments', label: label || '编辑', segs: snapshotSegments(), ...snapshotStyles() });
   updateUndoRedoButtons();
+}
+// === ASS 样式（决策 43）===
+function ensureProjectStyles(raw) {
+  // 旧工程无 styles → 注入 Aegisub Default；无 Default → 补入（无感迁移，幂等）
+  const GEO = window.AsrEditorUtils;
+  const styles = (Array.isArray(raw) ? raw : []).map(s => GEO.normalizeAssStyle(s));
+  if (!styles.some(s => s.name === 'Default')) {
+    styles.unshift({ ...GEO.ASS_STYLE_DEFAULTS });
+  }
+  return styles;
+}
+function styleNamesSet() {
+  return new Set((DATA.styles || []).map(s => s.name));
+}
+function styleByName(name) {
+  return (DATA.styles || []).find(s => s.name === name) || null;
+}
+function effectiveStyleOf(seg) {
+  // 解析链（与 ass_export.py 一致）：style_ref > color_styles[有效颜色] > Default
+  const GEO = window.AsrEditorUtils;
+  const name = GEO.resolveSegmentStyleName(seg, DATA.segments, styleNamesSet(), DATA.color_styles || {});
+  return styleByName(name) || GEO.normalizeAssStyle({});
+}
+function effectiveOverridesOf(seg) {
+  return window.AsrEditorUtils.normalizeOverride(seg?.overrides);
+}
+function mediaPlayres() {
+  // PlayRes = 视频分辨率（videoWidth 未知时回落 Aegisub 默认 1280×720）
+  if (player && Number.isFinite(player.videoWidth) && player.videoWidth > 0
+      && Number.isFinite(player.videoHeight) && player.videoHeight > 0) {
+    return [player.videoWidth, player.videoHeight];
+  }
+  return window.AsrEditorUtils.DEFAULT_PLAYRES;
 }
 function pushLayoutUndo(label, snapshot) {
   if (!snapshot) return;
@@ -7844,9 +8355,9 @@ function pushPreviewUndo(label, preview) {
   updateUndoRedoButtons();
 }
 function snapshotPreviewState() {
+  // 决策 43：preview.subtitle 几何废弃，快照只含开关与表情包层
   return {
     overlay: !!overlayToggle.checked,
-    subtitle: { ...getPreviewGeometry(), ...getSubtitleAppearance() },
     sticker: { ...getStickerGeometry() },
   };
 }
@@ -7854,7 +8365,7 @@ function applyPreviewState(state) {
   if (!state || typeof state.overlay !== 'boolean') return;
   overlayToggle.checked = state.overlay;
   updateEditorSettings({ overlayEnabled: state.overlay });
-  if (state.subtitle) setPreviewGeometry(state.subtitle, { markDirty: true });
+  // 旧历史记录可能携带 subtitle 几何——决策 43 起忽略
   if (state.sticker) setStickerGeometry(state.sticker, { markDirty: true });
   if (!state.overlay) overlayEl.classList.add('hidden');
   else update();
@@ -7874,7 +8385,7 @@ function snapshotCurrentForKind(kind, label) {
   if (kind === 'preview') {
     return { kind: 'preview', label: label || '预览', preview: snapshotPreviewState() };
   }
-  return { kind: 'segments', label: label || '编辑', segs: snapshotSegments() };
+  return { kind: 'segments', label: label || '编辑', segs: snapshotSegments(), ...snapshotStyles() };
 }
 function applyHistoryRecord(record) {
   if (record.kind === 'layout') {
@@ -7897,6 +8408,9 @@ function applyHistoryRecord(record) {
   }
   DATA.segments.length = 0;
   record.segs.forEach(s => DATA.segments.push(s));
+  // 决策 43：旧历史记录无 styles/colorStyles 字段 → 保持当前值不动
+  if (record.styles !== undefined) DATA.styles = ensureProjectStyles(record.styles);
+  if (record.colorStyles !== undefined) DATA.color_styles = record.colorStyles;
   // 历史恢复会改变下标身份；丢弃旧面板绑定，避免 clearSelection() 把旧面板
   // 内容提交到恢复后占据同一下标的另一条字幕，并因此生成新历史、清空 redo。
   currentCuePanelIdx = -1;
@@ -7944,7 +8458,7 @@ function historyGuarded() {
   }
   return replaceModal.classList.contains('show')
       || stickerModal.classList.contains('show')
-      || stickerPreviewModal.classList.contains('show')
+      || (stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))
       || projectMediaModal.classList.contains('show')
       || document.getElementById('sticker-root-modal').classList.contains('show');
 }
@@ -8015,6 +8529,19 @@ const cuePanelNext = document.getElementById('cue-panel-next');
 const cuePanelStart = document.getElementById('cue-panel-start');
 const cuePanelDuration = document.getElementById('cue-panel-duration');
 const cuePanelText = document.getElementById('cue-panel-text');
+const cuePanelTranslation = document.getElementById('cue-panel-translation');
+const cuePanelTranslateOne = document.getElementById('cue-panel-translate-one');
+const showTranslationToggle = document.getElementById('show-translation-toggle');
+const showTranslationToggleWrap = document.getElementById('show-translation-toggle-wrap');
+const translateDropdown = document.getElementById('translate-dropdown');
+const translateProgress = document.getElementById('translate-progress');
+const translateSettingsReadonly = document.getElementById('translate-settings-readonly');
+const colorExportPopover = document.getElementById('color-export-popover');
+const colorExportChecks = document.getElementById('color-export-checks');
+const colorExportSelectAll = document.getElementById('color-export-select-all');
+const colorExportConfirm = document.getElementById('color-export-confirm');
+const exportServerSeparator = document.getElementById('export-server-separator');
+const exportServerNote = document.getElementById('export-server-note');
 const cuePanelTotalLength = document.getElementById('cue-panel-total-length');
 const cuePanelCharsPerSecond = document.getElementById('cue-panel-chars-per-second');
 const cuePanelSticker = document.getElementById('cue-panel-sticker');
@@ -8135,6 +8662,11 @@ function applyCueListDisplaySettings() {
     !EDITOR_SETTINGS.cueListShowSticker || !projectHasStickers,
   );
   container.classList.toggle('hide-cue-charcount', !EDITOR_SETTINGS.cueListShowCharcount);
+  // 译文列（决策 42）：工程没有任何译文时整列自动收起
+  const projectHasTranslation = DATA.segments.some(segment => segment.translation);
+  if (showTranslationToggleWrap) showTranslationToggleWrap.hidden = !projectHasTranslation;
+  if (showTranslationToggle) showTranslationToggle.checked = EDITOR_SETTINGS.cueListShowTranslation;
+  container.classList.toggle('hide-cue-translation', !EDITOR_SETTINGS.cueListShowTranslation);
 }
 
 function bindCueListDisplayToggle(toggle, key) {
@@ -9181,6 +9713,7 @@ function commitCuePanelEdit() {
   const seg = DATA.segments[idx];
   if (!seg) { cuePanelUndoPushed = false; return false; }
   const nextText = cuePanelText.value.replace(/\r\n?/g, '\n');
+  const nextTranslation = (cuePanelTranslation.value || '').replace(/\r\n?/g, '\n');
   const oldStart = seg.start;
   const oldEnd = seg.end;
   const requestedStart = parsePanelTime(cuePanelStart.value, oldStart);
@@ -9201,13 +9734,25 @@ function commitCuePanelEdit() {
     cuePanelUndoPushed = false;
     return false;
   }
-  const changed = nextText !== seg.text || newStart !== oldStart || newEnd !== oldEnd;
+  const textChanged = nextText !== seg.text;
+  const translationChanged = nextTranslation !== (seg.translation || '');
+  const changed = textChanged || translationChanged || newStart !== oldStart || newEnd !== oldEnd;
   if (!changed) {
     cuePanelUndoPushed = false;
     return false;
   }
   ensureCuePanelUndo();
   seg.text = nextText;
+  // 原文改动 → 旧译文失效（决策 42：批量翻译只翻空缺会把失效段当空缺补上）
+  if (textChanged && nextTranslation === (seg.translation || '')) {
+    seg.translation = '';
+    if (cuePanelTranslation.value) {
+      cuePanelTranslation.value = '';
+      flashHint('原文已修改，译文已失效，可重新翻译');
+    }
+  } else {
+    seg.translation = nextTranslation;
+  }
   seg.start = newStart;
   seg.end = Math.max(newStart + 100, newEnd);
   if (seg.end > nextStart) {
@@ -9232,6 +9777,7 @@ function renderCurrentCuePanel() {
     .forEach((element) => { if (element) element.disabled = empty; });
   if (empty) {
     cuePanelText.value = '';
+    cuePanelTranslation.value = '';
     cuePanelStart.value = '';
     cuePanelDuration.value = '';
     cuePanelTotalLength.textContent = '0';
@@ -9241,6 +9787,8 @@ function renderCurrentCuePanel() {
     return;
   }
   if (document.activeElement !== cuePanelText || !cuePanelUndoPushed) cuePanelText.value = seg.text || '';
+  if (document.activeElement !== cuePanelTranslation || !cuePanelUndoPushed) cuePanelTranslation.value = seg.translation || '';
+  cuePanelTranslateOne.disabled = !translateReady();
   cuePanelStart.value = fmtShort(seg.start);
   cuePanelDuration.value = ((seg.end - seg.start) / 1000).toFixed(3);
   const metrics = window.AsrEditorUtils.cueMetrics(seg.text || '', seg.start, seg.end);
@@ -9336,6 +9884,12 @@ cuePanelText?.addEventListener('input', () => {
   const seg = DATA.segments[currentCuePanelIdx];
   seg.text = cuePanelText.value.replace(/\r\n?/g, '\n');
   seg._dirty = true;
+  // 原文改动 → 旧译文失效（决策 42：批量翻译只翻空缺会把失效段当空缺补上）
+  if (seg.translation) {
+    seg.translation = '';
+    if (document.activeElement !== cuePanelTranslation) cuePanelTranslation.value = '';
+    flashHint('原文已修改，译文已失效，可重新翻译');
+  }
   const metrics = window.AsrEditorUtils.cueMetrics(seg.text, seg.start, seg.end);
   cuePanelTotalLength.textContent = String(metrics.totalLength);
   cuePanelCharsPerSecond.textContent = metrics.charsPerSecond.toFixed(2);
@@ -9347,6 +9901,14 @@ cuePanelText?.addEventListener('input', () => {
   waveformEditor?.refreshCueLabel(currentCuePanelIdx);
 });
 cuePanelText?.addEventListener('blur', () => commitCuePanelEdit());
+cuePanelTranslation?.addEventListener('input', () => {
+  if (currentCuePanelIdx < 0) return;
+  ensureCuePanelUndo();
+  const seg = DATA.segments[currentCuePanelIdx];
+  seg.translation = cuePanelTranslation.value.replace(/\r\n?/g, '\n');
+  seg._dirty = true;
+});
+cuePanelTranslation?.addEventListener('blur', () => commitCuePanelEdit());
 cuePanelStart?.addEventListener('change', () => commitCuePanelEdit());
 cuePanelDuration?.addEventListener('change', () => commitCuePanelEdit());
 cuePanelAddSticker?.addEventListener('click', () => {
@@ -9449,6 +10011,12 @@ function buildCueEl(seg, idx) {
   const textEl = document.createElement('span');
   textEl.className = 'text';
   setTextHtml(textEl, seg.text, searchEl.value);
+  if (EDITOR_SETTINGS.cueListShowTranslation && seg.translation) {
+    const translationEl = document.createElement('span');
+    translationEl.className = 'translation';
+    setTextHtml(translationEl, seg.translation, searchEl.value);
+    textEl.appendChild(translationEl);
+  }
 
   const cntEl = document.createElement('span');
   cntEl.className = 'charcount';
@@ -9646,6 +10214,11 @@ function finishEdit(save) {
       DATA.segments[idx].text = newText;
       DATA.segments[idx]._dirty = true;
       el.classList.add('dirty');
+      // 原文改动 → 旧译文失效（决策 42）
+      if (DATA.segments[idx].translation) {
+        DATA.segments[idx].translation = '';
+        flashHint('原文已修改，译文已失效，可重新翻译');
+      }
     }
   }
   setTextHtml(textEl, DATA.segments[idx].text, searchEl.value);
@@ -10279,7 +10852,7 @@ document.addEventListener('keydown', (e) => {
   )) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -10474,7 +11047,7 @@ document.addEventListener('keydown', (e) => {
   if (editingState || isTextEditingTarget(e)) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
   if (!isPlaybackKeyboardTarget(e) && isNativeKeyboardControl(e)) return;
@@ -10509,7 +11082,7 @@ document.addEventListener('keydown', (e) => {
   if (editingState) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   const a = document.activeElement;
   if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable)) return;
@@ -10542,7 +11115,7 @@ document.addEventListener('keydown', (e) => {
   )) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -10600,7 +11173,7 @@ document.addEventListener('keydown', (e) => {
   )) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -10625,7 +11198,7 @@ document.addEventListener('keydown', (e) => {
   )) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -10647,7 +11220,7 @@ document.addEventListener('keydown', (e) => {
   )) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -10671,7 +11244,7 @@ document.addEventListener('keydown', (e) => {
   )) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -10705,7 +11278,7 @@ document.addEventListener('keydown', (e) => {
   )) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -10741,7 +11314,7 @@ document.addEventListener('keydown', (e) => {
   if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable)) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -10774,7 +11347,7 @@ document.addEventListener('keydown', (e) => {
   // modal 打开时不触发
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -10796,7 +11369,7 @@ document.addEventListener('keydown', (e) => {
     if (ctxmenu.classList.contains('show')) return;
     if (replaceModal.classList.contains('show')) return;
     if (stickerModal.classList.contains('show')) return;
-    if (stickerPreviewModal.classList.contains('show')) return;
+    if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
     if (projectMediaModal.classList.contains('show')) return;
     if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
     if (waveformEditor.getTool() !== 'razor') return;
@@ -10809,7 +11382,7 @@ document.addEventListener('keydown', (e) => {
   if (editingState) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -10829,7 +11402,7 @@ document.addEventListener('keydown', (e) => {
   if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable)) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -10852,7 +11425,7 @@ document.addEventListener('keydown', (e) => {
   if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable)) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -11012,8 +11585,8 @@ function applyStickerGeometryToDom(geo) {
   stickerOverlayLayer.style.bottom = 'auto';
 }
 // 只有当对应预览开关开启时才允许几何编辑（关闭时字幕盒完全隐藏、表情包盒不拦截指针）。
+// 决策 43：字幕盒不再做几何编辑（位置由段级 overrides.pos 拖动写入），仅表情包盒保留。
 function refreshPreviewGeometryEditable() {
-  overlayEl.classList.toggle('geometry-enabled', !!overlayToggle.checked);
   stickerOverlayLayer.classList.toggle('geometry-enabled', !!stickerOverlayToggle?.checked);
 }
 
@@ -11078,9 +11651,105 @@ function bindPreviewBoxPointerEvents(el, target) {
   el.addEventListener('pointerup', endPreviewGesture);
   el.addEventListener('pointercancel', endPreviewGesture);
 }
-bindPreviewBoxPointerEvents(overlayEl, 'subtitle');
+// === ASS 字幕预览（决策 43）===
+// 字幕盒位置/样式由「段样式 + 行内覆盖」驱动，旧全局预览框（preview.subtitle）废弃。
+// 拖动 = 写段级 overrides.pos（PlayRes 坐标，一手势一撤销）；双击 = 打开样式面板。
+function applyOverlayCssProps(css) {
+  overlayEl.style.left = css.left;
+  overlayEl.style.right = css.right;
+  overlayEl.style.top = css.top;
+  overlayEl.style.bottom = css.bottom;
+  overlayEl.style.transform = css.transform;
+  overlayEl.style.width = 'auto';
+  overlayEl.style.height = 'auto';
+}
+function currentAssLayout(seg) {
+  const style = effectiveStyleOf(seg);
+  const overrides = effectiveOverridesOf(seg);
+  const alignment = (overrides.alignment ?? style.alignment) || 2;
+  const rect = playerStage.getBoundingClientRect();
+  const playres = mediaPlayres();
+  const css = window.AsrEditorUtils.assOverlayCss(
+    overrides.pos || null, alignment, style, rect, playres);
+  return { style, overrides, alignment, rect, playres, css };
+}
+function applyAssOverlayStyle(seg, tMs) {
+  const layout = currentAssLayout(seg);
+  const span = overlayTextEl;
+  const textCss = window.AsrEditorUtils.assStyleToCss(layout.style, layout.overrides);
+  span.style.fontFamily = textCss.fontFamily;
+  span.style.fontSize = textCss.fontSize;
+  span.style.color = textCss.color;
+  span.style.fontWeight = textCss.fontWeight;
+  span.style.fontStyle = textCss.fontStyle;
+  span.style.textDecoration = textCss.textDecoration;
+  span.style.webkitTextStroke = textCss.webkitTextStroke || '';
+  span.style.textShadow = textCss.textShadow || '';
+  span.style.paintOrder = textCss.paintOrder || '';
+  span.classList.add('ass-styled');  // 去掉药丸样式（editor.css）
+  applyOverlayCssProps(layout.css);
+  // 淡入淡出（\fad 近似）：入场按 elapsed 比例，出场用 CSS transition
+  const fade = layout.overrides.fade;
+  const into = tMs - seg.start;
+  const remaining = seg.end - tMs;
+  if (fade && fade[0] > 0 && into < fade[0]) {
+    overlayEl.style.transition = 'none';
+    overlayEl.style.opacity = String(Math.max(0, Math.min(1, into / fade[0])));
+  } else if (fade && fade[1] > 0 && remaining < fade[1]) {
+    overlayEl.style.transition = `opacity ${fade[1]}ms linear`;
+    overlayEl.style.opacity = '0';
+  } else {
+    overlayEl.style.transition = 'none';
+    overlayEl.style.opacity = '1';
+  }
+}
+let assDrag = null;  // { pointerId, startX, startY, anchor, idx, undoPushed }
+overlayEl.addEventListener('pointerdown', (event) => {
+  if (event.button !== 0) return;
+  const seg = lastActive >= 0 ? DATA.segments[lastActive] : null;
+  if (!seg) return;
+  event.preventDefault();
+  const layout = currentAssLayout(seg);
+  const anchor = window.AsrEditorUtils.assAnchorPoint(
+    layout.overrides.pos || null, layout.alignment, layout.style, layout.rect, layout.playres);
+  assDrag = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    anchor,
+    idx: lastActive,
+    undoPushed: false,
+  };
+  try { event.target.setPointerCapture?.(event.pointerId); } catch (_) {}
+});
+overlayEl.addEventListener('pointermove', (event) => {
+  if (!assDrag || event.pointerId !== assDrag.pointerId) return;
+  const seg = DATA.segments[assDrag.idx];
+  if (!seg) return;
+  const rect = playerStage.getBoundingClientRect();
+  const playres = mediaPlayres();
+  const next = window.AsrEditorUtils.viewportToPlayres({
+    left: assDrag.anchor.left + (event.clientX - assDrag.startX),
+    top: assDrag.anchor.top + (event.clientY - assDrag.startY),
+  }, playres, rect);
+  if (!assDrag.undoPushed) { pushUndo('拖动字幕位置'); assDrag.undoPushed = true; }
+  if (!seg.overrides || typeof seg.overrides !== 'object') seg.overrides = {};
+  seg.overrides.pos = next;
+  applyOverlayCssProps(currentAssLayout(seg).css);
+});
+function endAssDrag(event) {
+  if (!assDrag || event.pointerId !== assDrag.pointerId) return;
+  try { event.target.releasePointerCapture?.(event.pointerId); } catch (_) {}
+  assDrag = null;
+}
+overlayEl.addEventListener('pointerup', endAssDrag);
+overlayEl.addEventListener('pointercancel', endAssDrag);
+overlayEl.addEventListener('dblclick', (event) => {
+  event.preventDefault();
+  if (lastActive >= 0 && DATA.segments[lastActive]) openStylePanel(lastActive);
+});
 
-// --- 键盘操作（聚焦时），字幕预览与表情包预览共用 ---
+// --- 键盘操作（聚焦时），仅表情包预览盒使用（绑定见 stickerOverlayLayer 创建处） ---
 // 方向键移动 1%；Shift 加速到 10%；Alt+方向缩放；Enter 切换 editable；Esc 失焦。
 function handlePreviewBoxKeydown(event, target) {
   if (!previewTargetEnabled(target)) return;
@@ -11107,8 +11776,6 @@ function handlePreviewBoxKeydown(event, target) {
     : GEO_UTILS.applyPreviewGeometryDelta(startGeo, 'move', dx, dy);
   setTargetGeometry(target, next);
 }
-overlayEl.addEventListener('keydown', (event) => handlePreviewBoxKeydown(event, 'subtitle'));
-
 // 点击预览框（字幕/表情包）以外的地方：失焦并退出控制点编辑态，调整框随之隐藏。
 // 捕获阶段监听，避免其他组件 pointerdown 的 stopPropagation 跳过失焦。
 document.addEventListener('pointerdown', (event) => {
@@ -11201,12 +11868,13 @@ function update() {
     }
     lastActive = idx;
   }
-  // overlay（禁用项不在画面上显示字幕文本）
+  // overlay：按段样式渲染（决策 43：CSS 近似 + \pos/\fad；禁用项不显示）
   if (overlayToggle.checked) {
     const seg = idx >= 0 ? DATA.segments[idx] : null;
     if (seg && !seg.disabled && tMs >= seg.start && tMs <= seg.end) {
       overlayEl.classList.remove('hidden');
       overlayTextEl.textContent = seg.text;
+      applyAssOverlayStyle(seg, tMs);
     } else {
       overlayEl.classList.add('hidden');
     }
@@ -11272,23 +11940,24 @@ stickerOverlayToggle?.addEventListener('change', () => {
   update();
 });
 
-// 初次应用（不弄脏工程）：字幕与表情包预览几何。必须在 stickerOverlayLayer 创建之后执行（TDZ）。
-setPreviewGeometry(getPreviewGeometry(), { markDirty: false });
+// 初次应用（不弄脏工程）：表情包预览几何。字幕盒位置由段样式驱动（决策 43），
+// 旧 preview.subtitle 不再应用。必须在 stickerOverlayLayer 创建之后执行（TDZ）。
 setStickerGeometry(getStickerGeometry(), { markDirty: false });
 refreshPreviewGeometryEditable();
 
 bindPlayerEvents(player);
 overlayToggle.addEventListener('change', () => {
-  // change 触发时 checked 已是新值；压入改变前的状态（overlay 取反、几何为当前值）作为撤销点
-  pushPreviewUndo('切换字幕预览', {
-    overlay: !overlayToggle.checked,
-    subtitle: { ...getPreviewGeometry() },
-  });
+  // change 触发时 checked 已是新值；压入改变前的状态作为撤销点（决策 43：不含字幕几何）
+  pushPreviewUndo('切换字幕预览', { overlay: !overlayToggle.checked });
   updateEditorSettings({ overlayEnabled: overlayToggle.checked });
   refreshPreviewGeometryEditable();
   if (!overlayToggle.checked) overlayEl.classList.add('hidden');
   else update();
 });
+
+// 决策 43：启动时样式目录无感迁移（旧工程注入 Aegisub Default）
+DATA.styles = ensureProjectStyles(DATA.styles);
+if (!DATA.color_styles || typeof DATA.color_styles !== 'object') DATA.color_styles = null;
 
 // === 下载 ===
 // 程序内开关（不暴露 GUI）：导出 SRT 时保留禁用项的时间轴序号但内容替换为空白
@@ -11508,6 +12177,8 @@ function buildJson() {
         sticker_ref: s.sticker_ref || null,
         color: s.color || null,
         color_ref: s.color_ref || null,
+        style_ref: s.style_ref || null,
+        overrides: s.overrides || null,
       };
       // 持久化"已改动"标记，便于二次打开时仍能识别脏行 / 离开提醒等
       if (s._dirty) o._dirty = true;
@@ -11520,8 +12191,10 @@ function buildJson() {
   if (DATA.gap_remove) out.gap_remove = normalizedGapRemoveData(DATA.gap_remove);
   const workspace = buildCurrentWorkspaceData();
   if (workspace) out.workspace = workspace;
-  // 预览几何：始终写入归一化后的当前几何，便于跨机/重开保持位置。
-  out.preview = { subtitle: { ...getPreviewGeometry(), ...getSubtitleAppearance() } };
+  if (DATA.styles) out.styles = DATA.styles;
+  if (DATA.color_styles) out.color_styles = DATA.color_styles;
+  // 预览几何：决策 43 起字幕预览框废弃（位置由段级 overrides.pos 驱动），仅保留表情包层。
+  out.preview = { sticker: { ...getStickerGeometry() } };
   return JSON.stringify(out, null, 2);
 }
 
@@ -11904,6 +12577,179 @@ async function downloadFile(content, filename, mime, accept) {
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   return true;
+}
+
+// === 翻译（决策 42：serve.py 后台翻译任务 + 译文写回 mosp） ===
+
+const LS_SERVER_EXPORT_COLORS = 'maw.serverExportColors';
+
+let translateJobId = null;
+let translateJobSince = 0;
+let translatePollTimer = null;
+
+function translateReady() {
+  return !!(SERVER_CONFIG?.translateUrl && SERVER_CONFIG.translateSettings?.configured);
+}
+
+function translateBusy() {
+  return translateJobId !== null;
+}
+
+function showTranslateProgress(visible, done, total) {
+  if (!translateProgress) return;
+  translateProgress.hidden = !visible;
+  if (visible) translateProgress.textContent = `翻译中 ${done}/${total}…`;
+}
+
+function configureTranslateUi() {
+  if (translateDropdown) translateDropdown.hidden = !(SERVER_CONFIG?.translateUrl);
+  if (translateSettingsReadonly) {
+    const settings = SERVER_CONFIG?.translateSettings;
+    if (!settings) return;
+    translateSettingsReadonly.textContent = settings.configured
+      ? `设置：目标 ${settings.target || 'zh'}${settings.model ? ` · 模型 ${settings.model}` : ''}（只读，改设置请到主 UI 预设）`
+      : '未配置翻译 API Key（请到主 UI 预设或环境变量配置）';
+    translateSettingsReadonly.classList.toggle('translate-unconfigured', !settings.configured);
+  }
+}
+
+async function startServerTranslate(scope, indices) {
+  if (!SERVER_CONFIG?.translateUrl) { flashHint('仅服务器编辑器支持批量翻译'); return; }
+  if (translateBusy()) { flashHint('已有翻译任务进行中，请等待完成'); return; }
+  if (!translateReady()) { flashHint('未配置翻译 API Key，无法翻译'); return; }
+  if (editingState) finishEdit(true);
+  // 先保存，确保服务端翻译基线 = 浏览器当前内容
+  if (serverProjectSavingEnabled()) await saveProjectToServer({ silent: true });
+  let data;
+  try {
+    const response = await fetch(SERVER_CONFIG.translateUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(scope === 'indices' ? { scope, indices } : { scope }),
+    });
+    data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || `服务器返回 ${response.status}`);
+  } catch (error) {
+    flashHint(`翻译启动失败：${error?.message || error}`);
+    return;
+  }
+  translateJobId = data.jobId;
+  translateJobSince = 0;
+  showTranslateProgress(true, 0, data.total);
+  update();
+  pollTranslateStatus();
+}
+
+function pollTranslateStatus() {
+  if (translateJobId === null) return;
+  const url = new URL(
+    `${SERVER_CONFIG.translateStatusUrl}${translateJobId}?since=${translateJobSince}`,
+    window.location.href,
+  );
+  fetch(url).then((response) => response.json().catch(() => ({}))).then((data) => {
+    if (!data.ok) { scheduleTranslatePoll(); return; }
+    translateJobSince += (data.segments || []).length;
+    let applied = false;
+    for (const item of data.segments || []) {
+      const seg = DATA.segments[item.index];
+      if (seg) { seg.translation = item.translation; applied = true; }
+    }
+    if (applied) renderAll();
+    if (data.error) {
+      flashHint(`翻译失败：${data.error}`);
+      finishTranslateUi();
+      return;
+    }
+    if (data.done) {
+      flashHint(`翻译完成（${data.translated} 条）`);
+      finishTranslateUi();
+      return;
+    }
+    showTranslateProgress(true, data.translated, data.total);
+    scheduleTranslatePoll();
+  }).catch(() => scheduleTranslatePoll());
+}
+
+function scheduleTranslatePoll() {
+  translatePollTimer = setTimeout(pollTranslateStatus, 1500);
+}
+
+function finishTranslateUi() {
+  translateJobId = null;
+  translateJobSince = 0;
+  if (translatePollTimer !== null) { clearTimeout(translatePollTimer); translatePollTimer = null; }
+  showTranslateProgress(false, 0, 0);
+  renderAll();
+}
+
+// === 服务端导出（决策 42：写工程同目录，主流程轮询识别） ===
+
+function rememberedExportColors() {
+  try {
+    const value = JSON.parse(localStorage.getItem(LS_SERVER_EXPORT_COLORS) || 'null');
+    if (Array.isArray(value)) return value;
+  } catch (_) { /* 忽略坏值 */ }
+  return null; // null = 全部颜色
+}
+
+async function serverExportSrt(colors) {
+  if (!SERVER_CONFIG?.exportSrtUrl) { flashHint('仅服务器编辑器支持导出到项目目录'); return; }
+  if (editingState) finishEdit(true);
+  if (serverProjectSavingEnabled()) await saveProjectToServer({ silent: true });
+  let data;
+  try {
+    const response = await fetch(SERVER_CONFIG.exportSrtUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ colors }),
+    });
+    data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || `服务器返回 ${response.status}`);
+  } catch (error) {
+    flashHint(`导出失败：${error?.message || error}`);
+    return;
+  }
+  localStorage.setItem(LS_SERVER_EXPORT_COLORS, JSON.stringify(colors));
+  flashHint(`已导出 ${data.files.length} 个文件到 ${data.dir}`);
+}
+
+function openColorExportPopover() {
+  const colors = usedSubtitleColors();
+  if (!colors.length) { flashHint('没有可导出的彩色字幕'); return; }
+  const selected = rememberedExportColors();
+  colorExportChecks.replaceChildren();
+  for (const color of colors) {
+    const label = document.createElement('label');
+    label.className = 'color-export-check';
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.dataset.color = color.name;
+    box.checked = selected === null || selected.includes(color.name);
+    label.append(box, document.createTextNode(` ${color.label || color.name}`));
+    colorExportChecks.appendChild(label);
+  }
+  colorExportPopover.hidden = false;
+}
+
+function closeColorExportPopover() {
+  colorExportPopover.hidden = true;
+}
+
+function confirmColorExport() {
+  const checked = [...colorExportChecks.querySelectorAll('input[type="checkbox"]:checked')]
+    .map((box) => box.dataset.color);
+  closeColorExportPopover();
+  void serverExportSrt(checked);
+}
+
+function configureServerExportUi() {
+  // hasServer 是 configureServerSaveControls 的局部变量，这里独立计算（既有 bug 修复）
+  const hasServer = !!(SERVER_CONFIG && SERVER_CONFIG.saveUrl);
+  if (exportServerSeparator) exportServerSeparator.hidden = !hasServer;
+  if (exportServerNote) {
+    exportServerNote.hidden = !hasServer;
+    if (hasServer) exportServerNote.textContent = '服务端导出：写入工程同目录，主流程自动识别';
+  }
 }
 
 // === 标题区：媒体名点击复制 / 工程文件名点击复制 ===
@@ -12484,12 +13330,42 @@ document.getElementById('download-srt').addEventListener('click', async () => {
   });
 });
 document.getElementById('download-full-srt').addEventListener('click', async () => {
+  // 服务器模式：服务端导出写工程同目录（决策 42）；便携模式保持浏览器下载
+  if (hasServer) { await serverExportSrt(rememberedExportColors()); return; }
   if (editingState) finishEdit(true);
   await downloadFile(buildSrt(), `${FILENAME_BASE}.srt`, 'text/plain', {
     desc: '完整 SRT 字幕文件', types: { 'text/plain': ['.srt'] }
   });
 });
-document.getElementById('download-color-srt').addEventListener('click', () => downloadColorSrts(false));
+document.getElementById('download-color-srt').addEventListener('click', () => {
+  if (hasServer) { openColorExportPopover(); return; }
+  downloadColorSrts(false);
+});
+
+// === 翻译与导出面板绑定（决策 42） ===
+
+document.getElementById('translate-missing')?.addEventListener('click', () => startServerTranslate('missing'));
+document.getElementById('translate-all')?.addEventListener('click', () => startServerTranslate('all'));
+cuePanelTranslateOne?.addEventListener('click', () => {
+  if (currentCuePanelIdx < 0) { flashHint('先选择一条字幕'); return; }
+  startServerTranslate('indices', [currentCuePanelIdx]);
+});
+showTranslationToggle?.addEventListener('change', () => {
+  updateEditorSettings({ cueListShowTranslation: showTranslationToggle.checked });
+  applyCueListDisplaySettings();
+  renderAll();
+});
+colorExportSelectAll?.addEventListener('click', () => {
+  for (const box of colorExportChecks.querySelectorAll('input[type="checkbox"]')) box.checked = true;
+});
+colorExportConfirm?.addEventListener('click', confirmColorExport);
+document.addEventListener('click', (event) => {
+  if (colorExportPopover && !colorExportPopover.hidden
+      && !colorExportPopover.contains(event.target)
+      && !event.target.closest('#subtitle-export-menu')) {
+    closeColorExportPopover();
+  }
+});
 document.getElementById('download-plain-text').addEventListener('click', async () => {
   if (editingState) finishEdit(true);
   await downloadFile(window.AsrEditorUtils.buildPlainTextPayload(DATA.segments), `${FILENAME_BASE}.txt`, 'text/plain', {
@@ -12791,11 +13667,15 @@ async function openProjectFile(file, options = {}) {
     DATA.workspace = data.workspace || null;
     DATA.gap_remove = data.gap_remove || null;
     gapRemoveDirty = false;
-    // 预览几何：归一化后应用；缺失时回退到 legacy 默认，且不弄脏工程。
+    // 预览几何：决策 43 起字幕预览框废弃（位置由段级 overrides.pos 驱动），
+    // 旧工程的 preview.subtitle 忽略；仅表情包层继续使用归一化几何。
     DATA.preview = (data.preview && typeof data.preview === 'object') ? data.preview : null;
-    setPreviewGeometry(getPreviewGeometry(), { markDirty: false });
     setStickerGeometry(getStickerGeometry(), { markDirty: false });
     refreshPreviewGeometryEditable();
+    // 决策 43：样式目录无感迁移——旧工程注入 Aegisub Default
+    DATA.styles = ensureProjectStyles(data.styles);
+    DATA.color_styles = (data.color_styles && typeof data.color_styles === 'object')
+      ? data.color_styles : null;
     if (data.sticker_root) STICKER_ROOT = data.sticker_root;
     DATA.segments.length = 0;
     data.segments.forEach((segment) => DATA.segments.push(segment));
@@ -14051,6 +14931,8 @@ const repairedTimingCount = window.AsrEditorUtils.normalizeSegmentTimings(DATA.s
 cleanPunctuation();
 configureServerSaveControls();
 configureServerAutoSave();
+configureTranslateUi();
+configureServerExportUi();
 configureRecentProjects();
 configureServerProjectSettings();
 initWaveformEditor();
@@ -14103,6 +14985,540 @@ hideDisabledToggle.addEventListener('change', () => {
 // 离开提示
 window.addEventListener('beforeunload', (e) => {
   if (hasUnsavedProjectChanges()) { e.preventDefault(); e.returnValue = ''; }
+});
+
+// === ASS 样式面板 / 样式管理器（决策 43）===
+// Aegisub Style Editor 同款字段布局（web 重画）；序列化逻辑见 ass_export.py。
+const stylePanelModal = document.getElementById('style-panel-modal');
+const stylePanelTitle = document.getElementById('style-panel-title');
+const stylePanelSegmentInfo = document.getElementById('style-panel-segment-info');
+const stylePanelFields = document.getElementById('style-panel-fields');
+const stylePanelOk = document.getElementById('style-panel-ok');
+const stylePanelCancel = document.getElementById('style-panel-cancel');
+const stylePanelReset = document.getElementById('style-panel-reset');
+const styleManagerModal = document.getElementById('style-manager-modal');
+const styleConflictModal = document.getElementById('style-conflict-modal');
+
+function tr(text) {
+  const i18n = window.MAWE_I18N;
+  return (i18n && typeof i18n.translateText === 'function') ? i18n.translateText(text) : text;
+}
+function assEl(tag, attrs = {}, children = []) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(attrs)) {
+    if (key === 'class') node.className = value;
+    else if (key.startsWith('on')) node.addEventListener(key.slice(2), value);
+    else node.setAttribute(key, value);
+  }
+  for (const child of [].concat(children)) {
+    node.append(child.nodeType ? child : document.createTextNode(String(child)));
+  }
+  return node;
+}
+function assColorToInput(ass) { return window.AsrEditorUtils.assColorToHex(ass); }
+function inputToAssColor(hex, oldAss) {
+  // <input type=color> 只给 RGB；保留原 alpha（&HAABBGGRR 前两位）
+  const old = window.AsrEditorUtils.normalizeAssColor(oldAss) || '&H00FFFFFF';
+  const a = old.slice(2, 4);
+  const r = hex.slice(1, 3);
+  const g = hex.slice(3, 5);
+  const b = hex.slice(5, 7);
+  return `&H${a}${b}${g}${r}`.toUpperCase();
+}
+
+let stylePanelContext = null;  // { mode: 'segment'|'style', idx?, styleName? }
+let stylePanelState = {};      // 面板编辑中的字段（segment 模式含 style_ref/pos/fade）
+
+const ASS_PANEL_FIELDS = [
+  { key: 'font', label: '字体', type: 'text', wide: true },
+  { key: 'font_size', label: '字号', type: 'number' },
+  { key: 'bold', label: '粗体', type: 'check' },
+  { key: 'italic', label: '斜体', type: 'check' },
+  { key: 'underline', label: '下划线', type: 'check' },
+  { key: 'strikeout', label: '删除线', type: 'check' },
+  { key: 'primary', label: '主色', type: 'color' },
+  { key: 'secondary', label: '次色', type: 'color' },
+  { key: 'outline', label: '描边色', type: 'color' },
+  { key: 'shadow', label: '阴影色', type: 'color' },
+  { key: 'outline_w', label: '描边宽度', type: 'number' },
+  { key: 'shadow_w', label: '阴影距离', type: 'number' },
+  { key: 'scale_x', label: '缩放 X%', type: 'number' },
+  { key: 'scale_y', label: '缩放 Y%', type: 'number' },
+  { key: 'spacing', label: '字距', type: 'number' },
+  { key: 'angle', label: '旋转°', type: 'number' },
+];
+
+function assFieldRow(labelText, control, mode = '') {
+  const wrap = assEl('label', { class: `ass-field ${mode}` });
+  wrap.append(assEl('span', { class: 'ass-field-label' }, tr(labelText)), control);
+  return wrap;
+}
+
+function renderStylePanel() {
+  const GEO = window.AsrEditorUtils;
+  const grid = assEl('div', { class: 'ass-style-grid' });
+  if (stylePanelContext.mode === 'segment') {
+    // 段级直选（空 = 继承颜色绑定）
+    const styleSel = assEl('select');
+    styleSel.append(assEl('option', { value: '' }, tr('继承颜色绑定')));
+    (DATA.styles || []).forEach((s) => styleSel.append(assEl('option', { value: s.name }, s.name)));
+    styleSel.value = stylePanelState.style_ref || '';
+    styleSel.addEventListener('change', () => {
+      stylePanelState.style_ref = styleSel.value || null;
+    });
+    grid.append(assFieldRow('样式', styleSel, 'wide'));
+  }
+  ASS_PANEL_FIELDS.forEach((def) => {
+    let control;
+    if (def.type === 'check') {
+      control = assEl('input', { type: 'checkbox' });
+      control.checked = !!stylePanelState[def.key];
+      control.addEventListener('change', () => { stylePanelState[def.key] = control.checked; });
+    } else if (def.type === 'color') {
+      control = assEl('input', { type: 'color' });
+      control.value = GEO.assColorToHex(stylePanelState[def.key]);
+      control.addEventListener('input', () => {
+        stylePanelState[def.key] = inputToAssColor(control.value, stylePanelState[def.key]);
+      });
+    } else {
+      control = assEl('input', {
+        type: 'text',
+        inputmode: def.type === 'number' ? 'decimal' : undefined,
+        autocomplete: 'off',
+      });
+      control.value = (stylePanelState[def.key] ?? '');
+      control.addEventListener('input', () => {
+        stylePanelState[def.key] = def.type === 'number' ? Number(control.value) : control.value;
+      });
+    }
+    grid.append(assFieldRow(def.label, control, def.wide ? 'wide' : ''));
+  });
+  // 对齐 3×3 网格（\an 编号，Aegisub 同款布局：上 7/8/9 中 4/5/6 下 1/2/3）
+  const alignWrap = assEl('div', { class: 'ass-field ass-field-wide' });
+  alignWrap.append(assEl('span', { class: 'ass-field-label' }, tr('对齐')));
+  const alignGrid = assEl('div', { class: 'ass-align-grid' });
+  [7, 8, 9, 4, 5, 6, 1, 2, 3].forEach((n) => {
+    const btn = assEl('button', { type: 'button', class: `ass-align-cell${stylePanelState.alignment === n ? ' active' : ''}` }, String(n));
+    btn.addEventListener('click', () => {
+      stylePanelState.alignment = n;
+      renderStylePanel();
+    });
+    alignGrid.append(btn);
+  });
+  alignWrap.append(alignGrid);
+  grid.append(alignWrap);
+  if (stylePanelContext.mode === 'segment') {
+    // \pos（拖动写入的值也可在此手改/清除）与 \fad
+    const posWrap = assEl('div', { class: 'ass-field ass-field-wide' });
+    posWrap.append(assEl('span', { class: 'ass-field-label' }, tr('位置（PlayRes）')));
+    const posX = assEl('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off' });
+    const posY = assEl('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off' });
+    posX.value = stylePanelState.pos ? stylePanelState.pos[0] : '';
+    posY.value = stylePanelState.pos ? stylePanelState.pos[1] : '';
+    const setPos = () => {
+      const x = Number(posX.value);
+      const y = Number(posY.value);
+      stylePanelState.pos = (Number.isFinite(x) && Number.isFinite(y)) ? [x, y] : null;
+    };
+    posX.addEventListener('input', setPos);
+    posY.addEventListener('input', setPos);
+    const clearPos = assEl('button', { type: 'button' }, tr('清除位置'));
+    clearPos.addEventListener('click', () => {
+      stylePanelState.pos = null;
+      posX.value = '';
+      posY.value = '';
+    });
+    posWrap.append(posX, posY, clearPos);
+    grid.append(posWrap);
+    const fadeWrap = assEl('div', { class: 'ass-field ass-field-wide' });
+    fadeWrap.append(assEl('span', { class: 'ass-field-label' }, tr('淡入/淡出 ms')));
+    const fadeIn = assEl('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off' });
+    const fadeOut = assEl('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off' });
+    fadeIn.value = stylePanelState.fade ? stylePanelState.fade[0] : '';
+    fadeOut.value = stylePanelState.fade ? stylePanelState.fade[1] : '';
+    const setFade = () => {
+      const a = Number(fadeIn.value);
+      const b = Number(fadeOut.value);
+      stylePanelState.fade = (Number.isFinite(a) && Number.isFinite(b)) ? [a, b] : null;
+    };
+    fadeIn.addEventListener('input', setFade);
+    fadeOut.addEventListener('input', setFade);
+    fadeWrap.append(fadeIn, fadeOut);
+    grid.append(fadeWrap);
+  }
+  stylePanelFields.replaceChildren(grid);
+}
+
+function openStylePanel(idx) {
+  const seg = DATA.segments[idx];
+  if (!seg) return;
+  const style = effectiveStyleOf(seg);
+  const overrides = effectiveOverridesOf(seg);
+  stylePanelContext = { mode: 'segment', idx };
+  stylePanelState = { ...style, ...overrides };
+  stylePanelState.style_ref = seg.style_ref || null;
+  stylePanelState.pos = overrides.pos || null;
+  stylePanelState.fade = overrides.fade || null;
+  stylePanelTitle.textContent = tr('字幕样式');
+  stylePanelSegmentInfo.textContent = `${tr('第')} ${idx + 1} ${tr('条')}：${String(seg.text || '').slice(0, 60)}`;
+  renderStylePanel();
+  stylePanelModal.classList.add('show');
+}
+
+function openStyleEditorForStyle(name) {
+  const style = styleByName(name);
+  if (!style) return;
+  stylePanelContext = { mode: 'style', styleName: name };
+  stylePanelState = { ...style };
+  stylePanelTitle.textContent = `${tr('编辑样式')}：${name}`;
+  stylePanelSegmentInfo.textContent = tr('改动对所有引用该样式的字幕生效');
+  renderStylePanel();
+  stylePanelModal.classList.add('show');
+}
+
+function closeStylePanel() {
+  stylePanelModal.classList.remove('show');
+  stylePanelContext = null;
+}
+
+function commitStylePanel() {
+  const ctx = stylePanelContext;
+  if (!ctx) return;
+  const { style_ref, pos, fade, ...styleFields } = stylePanelState;
+  const GEO = window.AsrEditorUtils;
+  if (ctx.mode === 'segment') {
+    const seg = DATA.segments[ctx.idx];
+    if (!seg) return;
+    pushUndo('修改字幕样式');
+    if (style_ref) seg.style_ref = style_ref;
+    else delete seg.style_ref;
+    // 只写与有效样式不同的字段（显式覆盖；与 ass_export 语义一致）
+    const style = effectiveStyleOf(seg);
+    const overrides = {};
+    for (const [key, value] of Object.entries(styleFields)) {
+      if (key === 'alignment' && !Number.isFinite(Number(value))) continue;
+      if (value === style[key]) continue;
+      if (typeof value === 'number' && !Number.isFinite(value)) continue;
+      overrides[key] = value;
+    }
+    const clean = GEO.normalizeOverride(overrides);
+    if (pos) clean.pos = [Math.round(pos[0]), Math.round(pos[1])];
+    if (fade) clean.fade = [Math.round(fade[0]), Math.round(fade[1])];
+    if (Object.keys(clean).length) seg.overrides = clean;
+    else delete seg.overrides;
+    renderAll();
+  } else {
+    const style = styleByName(ctx.styleName);
+    if (!style) return;
+    pushUndo('修改样式');
+    Object.assign(style, GEO.normalizeAssStyle(styleFields));
+    renderAll();
+  }
+  closeStylePanel();
+  update();
+}
+
+stylePanelOk.addEventListener('click', commitStylePanel);
+stylePanelCancel.addEventListener('click', closeStylePanel);
+stylePanelReset.addEventListener('click', () => {
+  const ctx = stylePanelContext;
+  if (!ctx) return;
+  if (ctx.mode === 'segment') {
+    const seg = DATA.segments[ctx.idx];
+    if (!seg) return;
+    pushUndo('重置字幕样式');
+    delete seg.style_ref;
+    delete seg.overrides;
+    renderAll();
+    closeStylePanel();
+    update();
+    flashHint(tr('已恢复该段的样式默认值'));
+  } else {
+    const style = styleByName(ctx.styleName);
+    if (!style) return;
+    pushUndo('重置样式');
+    DATA.styles[DATA.styles.indexOf(style)] = { ...window.AsrEditorUtils.ASS_STYLE_DEFAULTS, name: ctx.styleName };
+    renderAll();
+    closeStylePanel();
+    update();
+    flashHint(tr('已恢复样式默认值'));
+  }
+});
+[stylePanelModal, styleManagerModal, styleConflictModal].forEach((modal) => {
+  modal?.addEventListener('click', (event) => {
+    if (event.target !== modal) return;
+    if (modal === stylePanelModal) closeStylePanel();
+    else modal.classList.remove('show');
+  });
+});
+
+// === 样式管理器 ===
+let styleManagerSelected = { kind: '', name: '' };
+let styleCatalogs = [];
+
+function renderStyleManagerLists() {
+  const projectList = document.getElementById('style-manager-project-list');
+  projectList.replaceChildren(...(DATA.styles || []).map((s) => {
+    const li = assEl('li', { class: `${s.name === 'Default' ? 'default ' : ''}${styleManagerSelected.kind === 'project' && styleManagerSelected.name === s.name ? 'selected' : ''}` }, s.name);
+    li.addEventListener('click', () => {
+      styleManagerSelected = { kind: 'project', name: s.name };
+      renderStyleManagerLists();
+    });
+    return li;
+  }));
+  const catalogList = document.getElementById('style-manager-catalog-list');
+  catalogList.replaceChildren(...styleCatalogs.map((c) => {
+    const li = assEl('li', { class: styleManagerSelected.kind === 'catalog' && styleManagerSelected.name === c.name ? 'selected' : '' }, `${c.name}`);
+    li.addEventListener('click', () => {
+      styleManagerSelected = { kind: 'catalog', name: c.name };
+      renderStyleManagerLists();
+    });
+    return li;
+  }));
+  // 颜色映射：5 色 × 样式下拉（任务级，存顶层 color_styles）
+  const mapWrap = document.getElementById('style-manager-color-map');
+  const styleNames = (DATA.styles || []).map((s) => s.name);
+  mapWrap.replaceChildren(...COLOR_PALETTE.map((c) => {
+    const row = assEl('label', { class: 'style-manager-color-row' });
+    const dot = assEl('span', { class: 'style-manager-color-dot' });
+    dot.style.background = c.value;
+    row.append(dot, assEl('span', {}, c.label));
+    const sel = assEl('select');
+    sel.append(assEl('option', { value: '' }, tr('无绑定')));
+    styleNames.forEach((n) => sel.append(assEl('option', { value: n }, n)));
+    sel.value = (DATA.color_styles || {})[c.name] || '';
+    sel.addEventListener('change', () => {
+      pushUndo('颜色样式映射');
+      if (!DATA.color_styles) DATA.color_styles = {};
+      if (sel.value) DATA.color_styles[c.name] = sel.value;
+      else delete DATA.color_styles[c.name];
+      if (!Object.keys(DATA.color_styles).length) DATA.color_styles = null;
+      renderStyleManagerLists();
+      update();
+    });
+    row.append(sel);
+    return row;
+  }));
+}
+
+async function loadStyleCatalogs() {
+  const info = document.getElementById('style-manager-catalog-info');
+  const list = document.getElementById('style-manager-catalog-list');
+  if (!SERVER_CONFIG?.styleCatalogsUrl) {
+    info.textContent = tr('仅服务器编辑器支持读取本机 Aegisub 目录');
+    list.replaceChildren();
+    return;
+  }
+  try {
+    const response = await fetch(new URL(SERVER_CONFIG.styleCatalogsUrl, window.location.href));
+    const data = await response.json();
+    if (!data.ok) { info.textContent = data.error || tr('读取失败'); return; }
+    if (!data.exists) {
+      info.textContent = `${tr('目录不存在')}：${data.dir}`;
+      styleCatalogs = [];
+    } else {
+      info.textContent = data.dir;
+      styleCatalogs = data.catalogs || [];
+    }
+    renderStyleManagerLists();
+  } catch (error) {
+    info.textContent = `${tr('读取失败')}：${error.message}`;
+  }
+}
+
+function openStyleManager() {
+  styleManagerModal.classList.add('show');
+  renderStyleManagerLists();
+  loadStyleCatalogs();
+}
+
+// 同名冲突三选一（决策 43⑤：覆盖/跳过/改名）。resolve({choice, name})
+function askStyleConflict(styleName) {
+  return new Promise((resolve) => {
+    const desc = document.getElementById('style-conflict-desc');
+    const renameRow = document.getElementById('style-conflict-rename-row');
+    const renameInput = document.getElementById('style-conflict-rename-input');
+    desc.textContent = tr(`样式「${styleName}」已存在，如何处理？`);
+    renameRow.style.display = 'none';
+    renameInput.value = '';
+    styleConflictModal.classList.add('show');
+    const done = (choice, name = '') => {
+      styleConflictModal.classList.remove('show');
+      document.getElementById('style-conflict-skip').onclick = null;
+      document.getElementById('style-conflict-rename-btn').onclick = null;
+      document.getElementById('style-conflict-overwrite').onclick = null;
+      resolve({ choice, name });
+    };
+    document.getElementById('style-conflict-skip').onclick = () => done('skip');
+    document.getElementById('style-conflict-rename-btn').onclick = () => {
+      if (renameRow.style.display === 'none') {
+        renameRow.style.display = '';
+        renameInput.focus();
+        return;
+      }
+      const name = renameInput.value.trim();
+      if (!name || styleByName(name)) { flashHint(tr('名称无效或已存在')); return; }
+      done('rename', name);
+    };
+    document.getElementById('style-conflict-overwrite').onclick = () => done('overwrite');
+  });
+}
+
+async function mergeStylesIntoProject(styles, skipped) {
+  if (!Array.isArray(styles) || !styles.length) {
+    flashHint(tr('没有解析到任何样式'));
+    return;
+  }
+  let undoPushed = false;
+  let changed = false;
+  for (const incoming of styles) {
+    const normalized = window.AsrEditorUtils.normalizeAssStyle(incoming);
+    const existing = styleByName(normalized.name);
+    if (!existing) {
+      if (!undoPushed) { pushUndo('导入样式'); undoPushed = true; }
+      DATA.styles.push(normalized);
+      changed = true;
+      continue;
+    }
+    if (JSON.stringify(existing) === JSON.stringify(normalized)) continue;
+    const { choice, name } = await askStyleConflict(normalized.name);
+    if (choice === 'overwrite') {
+      if (!undoPushed) { pushUndo('导入样式'); undoPushed = true; }
+      DATA.styles[DATA.styles.indexOf(existing)] = normalized;
+      changed = true;
+    } else if (choice === 'rename') {
+      if (!undoPushed) { pushUndo('导入样式'); undoPushed = true; }
+      normalized.name = name;
+      DATA.styles.push(normalized);
+      changed = true;
+    }
+  }
+  if (changed) {
+    renderAll();
+    renderStyleManagerLists();
+    update();
+  }
+  flashHint(skipped ? tr(`导入完成（跳过 ${skipped} 条损坏行）`) : tr('导入完成'));
+}
+
+async function importSelectedCatalog() {
+  const name = styleManagerSelected.kind === 'catalog' ? styleManagerSelected.name : '';
+  if (!name) { flashHint(tr('先在右侧选择一个目录')); return; }
+  try {
+    const url = new URL(SERVER_CONFIG.styleCatalogUrl, window.location.href);
+    url.searchParams.set('name', name);
+    const response = await fetch(url);
+    const data = await response.json();
+    if (!data.ok) { flashHint(data.error || tr('读取失败')); return; }
+    await mergeStylesIntoProject(data.styles, data.skipped);
+  } catch (error) {
+    flashHint(`${tr('读取失败')}：${error.message}`);
+  }
+}
+
+async function importStyleFile(file) {
+  const kind = /\.ass$/i.test(file.name) ? 'ass' : 'sty';
+  try {
+    const text = await file.text();
+    const response = await fetch(new URL(SERVER_CONFIG.stylesParseUrl, window.location.href), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, kind }),
+    });
+    const data = await response.json();
+    if (!data.ok) { flashHint(data.error || tr('解析失败')); return; }
+    await mergeStylesIntoProject(data.styles, data.skipped);
+  } catch (error) {
+    flashHint(`${tr('读取失败')}：${error.message}`);
+  }
+}
+
+function renameStyleReferences(oldName, newName) {
+  if (DATA.color_styles) {
+    for (const [color, name] of Object.entries(DATA.color_styles)) {
+      if (name === oldName) DATA.color_styles[color] = newName;
+    }
+  }
+  DATA.segments.forEach((seg) => {
+    if (seg.style_ref === oldName) seg.style_ref = newName;
+  });
+}
+
+document.getElementById('style-manager-btn')?.addEventListener('click', openStyleManager);
+document.getElementById('style-manager-close')?.addEventListener('click', () => styleManagerModal.classList.remove('show'));
+document.getElementById('style-manager-new')?.addEventListener('click', () => {
+  const name = window.prompt(tr('新样式名称'));
+  if (!name) return;
+  if (styleByName(name)) { flashHint(tr('样式名已存在')); return; }
+  pushUndo('新建样式');
+  DATA.styles.push({ ...window.AsrEditorUtils.ASS_STYLE_DEFAULTS, name });
+  renderStyleManagerLists();
+  renderAll();
+  update();
+  openStyleEditorForStyle(name);
+});
+document.getElementById('style-manager-edit')?.addEventListener('click', () => {
+  const name = styleManagerSelected.kind === 'project' ? styleManagerSelected.name : '';
+  if (!name) { flashHint(tr('先在左侧选择一个样式')); return; }
+  openStyleEditorForStyle(name);
+});
+document.getElementById('style-manager-rename')?.addEventListener('click', () => {
+  const name = styleManagerSelected.kind === 'project' ? styleManagerSelected.name : '';
+  if (!name) { flashHint(tr('先在左侧选择一个样式')); return; }
+  const newName = window.prompt(tr('新名称'), name);
+  if (!newName || newName === name) return;
+  if (styleByName(newName)) { flashHint(tr('样式名已存在')); return; }
+  pushUndo('重命名样式');
+  const style = styleByName(name);
+  style.name = newName;
+  renameStyleReferences(name, newName);
+  renderStyleManagerLists();
+  renderAll();
+  update();
+});
+document.getElementById('style-manager-delete')?.addEventListener('click', () => {
+  const name = styleManagerSelected.kind === 'project' ? styleManagerSelected.name : '';
+  if (!name) { flashHint(tr('先在左侧选择一个样式')); return; }
+  if (name === 'Default') { flashHint(tr('Default 样式不可删除')); return; }
+  if (!window.confirm(tr(`确定删除样式「${name}」？引用它的字幕将回落 Default`))) return;
+  pushUndo('删除样式');
+  DATA.styles = DATA.styles.filter((s) => s.name !== name);
+  renameStyleReferences(name, 'Default');  // 引用修正：显式引用回落 Default
+  if (DATA.color_styles) {
+    for (const [color, bound] of Object.entries(DATA.color_styles)) {
+      if (bound === 'Default') delete DATA.color_styles[color];
+    }
+    if (!Object.keys(DATA.color_styles).length) DATA.color_styles = null;
+  }
+  DATA.segments.forEach((seg) => { if (seg.style_ref === 'Default') delete seg.style_ref; });
+  styleManagerSelected = { kind: '', name: '' };
+  renderStyleManagerLists();
+  renderAll();
+  update();
+});
+document.getElementById('style-manager-set-default')?.addEventListener('click', () => {
+  const name = styleManagerSelected.kind === 'project' ? styleManagerSelected.name : '';
+  if (!name || name === 'Default') { flashHint(name ? tr('它已经是默认样式') : tr('先在左侧选择一个样式')); return; }
+  pushUndo('设为默认样式');
+  // ASS 的默认语义 = 名字为 Default 的兜底样式：交换名字并修正全部引用
+  const other = styleByName('Default');
+  const style = styleByName(name);
+  style.name = 'Default';
+  if (other) other.name = name;
+  renameStyleReferences(name, 'Default');
+  if (other) renameStyleReferences('Default', name);
+  renderStyleManagerLists();
+  renderAll();
+  update();
+});
+document.getElementById('style-manager-import-catalog')?.addEventListener('click', importSelectedCatalog);
+document.getElementById('style-manager-import-file')?.addEventListener('click', () => {
+  document.getElementById('style-manager-file-input').value = '';
+  document.getElementById('style-manager-file-input').click();
+});
+document.getElementById('style-manager-file-input')?.addEventListener('change', (event) => {
+  const file = event.target.files?.[0];
+  if (file) importStyleFile(file);
 });
 </script>
 

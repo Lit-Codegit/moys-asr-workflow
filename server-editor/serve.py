@@ -29,9 +29,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import ass_export  # noqa: E402
 import edit  # noqa: E402
 import export_srt  # noqa: E402
 import translate_subtitle_api as translate_api  # noqa: E402
+from ass_style import extract_styles_from_ass, parse_styles_text  # noqa: E402
 from maw.gui_config import DEFAULT_ENV_PATH, load_env  # noqa: E402
 from maw.project import ProjectValidationFailed, normalize_project, repair_segment_durations  # noqa: E402
 from maw.media import MEDIA_EXTENSIONS, MediaConversionError, MediaResolutionError, MediaStatus, convert_media_for_browser, resolve_project_media  # noqa: E402
@@ -353,6 +355,9 @@ def build_server_page(project: ServerProject, settings: ServerSettings | None,
             "translateUrl": "/api/translate",
             "translateStatusUrl": "/api/translate/",
             "exportSrtUrl": "/api/export-srt",
+            "styleCatalogsUrl": "/api/style-catalogs",
+            "styleCatalogUrl": "/api/style-catalog",
+            "stylesParseUrl": "/api/styles/parse",
             "translateSettings": {
                 "target": server.translate_config["target"],
                 "model": server.translate_config["model"],
@@ -676,17 +681,54 @@ class EditorServer(ThreadingHTTPServer):
                 "segments": job["segments"][since:],
             }
 
-    # —— 导出 SRT（决策 42：写工程同目录，与 mosp_to_srt.py 共用 export_srt） ——
+    # —— 导出 SRT + ASS（决策 42/43⑧：同批产，写工程同目录） ——
 
     def export_srt_files(self, colors: list[str] | None) -> list[Path]:
         if not self.project.json_path:
-            raise SaveProjectError("工程未绑定文件，无法导出 SRT")
+            raise SaveProjectError("工程未绑定文件，无法导出字幕")
         with self.save_lock:
             project_data = self.project.data
             out_dir = self.project.json_path.parent
             base_name = self.project.json_path.stem
-        return export_srt.export_srt_set(project_data, out_dir,
-                                         base_name=base_name, colors=colors)
+        files = export_srt.export_srt_set(project_data, out_dir,
+                                          base_name=base_name, colors=colors)
+        files += ass_export.export_ass_set(project_data, out_dir,
+                                           base_name=base_name, colors=colors)
+        return files
+
+    # —— 样式目录（决策 43：Aegisub 目录 ~/.aegisub/catalog，v1 只读导入） ——
+
+    def style_catalog_dir(self) -> Path:
+        """Aegisub 样式目录：Linux/macOS `~/.aegisub/catalog`，Windows `%APPDATA%\\Aegisub\\catalog`。"""
+        candidates = [Path.home() / ".aegisub" / "catalog"]
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            candidates.append(Path(appdata) / "Aegisub" / "catalog")
+        for candidate in candidates:
+            if candidate.is_dir():
+                return candidate
+        return candidates[0]
+
+    def list_style_catalogs(self) -> list[dict]:
+        directory = self.style_catalog_dir()
+        catalogs = []
+        if directory.is_dir():
+            for entry in sorted(directory.glob("*.sty")):
+                try:
+                    size = entry.stat().st_size
+                except OSError:
+                    size = 0
+                catalogs.append({"name": entry.stem, "path": str(entry), "size": size})
+        return catalogs
+
+    def read_style_catalog(self, name: str) -> tuple[list[dict], int]:
+        if Path(name).name != name:
+            raise ValueError("目录名格式不正确")
+        path = self.style_catalog_dir() / f"{name}.sty"
+        if not path.is_file():
+            raise FileNotFoundError(f"样式目录 {name} 不存在")
+        text = path.read_text(encoding="utf-8-sig")
+        return parse_styles_text(text)
 
 
 def safe_project_filename(directory: Path, filename: str) -> Path:
@@ -746,6 +788,8 @@ class EditorRequestHandler(BaseHTTPRequestHandler):
             self.start_translate()
         elif path == "/api/export-srt":
             self.export_srt()
+        elif path == "/api/styles/parse":
+            self.parse_styles()
         else:
             self.send_error(HTTPStatus.NOT_FOUND, "未知 API")
 
@@ -818,7 +862,7 @@ class EditorRequestHandler(BaseHTTPRequestHandler):
         self.send_json(HTTPStatus.OK, {"ok": True, **status})
 
     def export_srt(self) -> None:
-        """POST /api/export-srt {colors?: [名字]|null} → 写工程同目录（决策 42）。"""
+        """POST /api/export-srt {colors?: [名字]|null} → 写工程同目录（决策 42/43：SRT+ASS 同批）。"""
         try:
             request = self.read_json_request()
             colors = request.get("colors", None)
@@ -838,6 +882,48 @@ class EditorRequestHandler(BaseHTTPRequestHandler):
             "files": [str(p) for p in files],
             "dir": out_dir,
         })
+
+    def style_catalogs(self) -> None:
+        """GET /api/style-catalogs → 本机 Aegisub 样式目录列表（决策 43）。"""
+        directory = self.editor_server.style_catalog_dir()
+        self.send_json(HTTPStatus.OK, {
+            "ok": True,
+            "dir": str(directory),
+            "exists": directory.is_dir(),
+            "catalogs": self.editor_server.list_style_catalogs(),
+        })
+
+    def style_catalog(self) -> None:
+        """GET /api/style-catalog?name=<目录名> → 解析后的样式列表（决策 43）。"""
+        try:
+            query = parse_qs(urlsplit(self.path).query)
+            name = query.get("name", [""])[0]
+            styles, skipped = self.editor_server.read_style_catalog(name)
+        except (FileNotFoundError, ValueError) as error:
+            self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": str(error)})
+            return
+        self.send_json(HTTPStatus.OK, {"ok": True, "styles": styles, "skipped": skipped})
+
+    def parse_styles(self) -> None:
+        """POST /api/styles/parse {text, kind: sty|ass} → 解析任意 .sty/.ass 样式文本（决策 43）。"""
+        try:
+            request = self.read_json_request()
+            text = request.get("text")
+            kind = request.get("kind", "sty")
+            if not isinstance(text, str) or not text.strip():
+                raise ValueError("样式文本为空")
+            if kind not in ("sty", "ass"):
+                raise ValueError("kind 必须是 sty 或 ass")
+            if kind == "ass":
+                styles, skipped = extract_styles_from_ass(text)
+            else:
+                styles, skipped = parse_styles_text(text)
+            if not styles:
+                raise ValueError("没有解析到任何样式（文件里没有有效的 Style 行）")
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(error)})
+            return
+        self.send_json(HTTPStatus.OK, {"ok": True, "styles": styles, "skipped": skipped})
 
     def open_recent_project(self) -> None:
         try:
@@ -965,6 +1051,12 @@ class EditorRequestHandler(BaseHTTPRequestHandler):
             return
         if path.startswith("/api/translate/"):
             self.translate_status()
+            return
+        if path == "/api/style-catalogs":
+            self.style_catalogs()
+            return
+        if path == "/api/style-catalog":
+            self.style_catalog()
             return
         if path == "/media":
             media_path = self.editor_server.project.media_path

@@ -424,5 +424,110 @@ class LocalEditorServerTests(unittest.TestCase):
                 thread.join(timeout=2)
 
 
+    def test_style_catalog_endpoints_and_ass_export(self) -> None:
+        """决策 43：样式目录列表/读取/解析端点 + 导出同批产 .ass。"""
+        catalog_dir = self.root / "aegisub-catalog"
+        catalog_dir.mkdir()
+        (catalog_dir / "管人切片.sty").write_text(
+            "Style: lika,思源黑体 CN Heavy,50,&H00FFFFFF,&H00FFFFFF,&H193A85F0,&H910E0807,0,0,0,0,100,100,0,0,1,4,5,2,135,135,140,1\n"
+            "Style: broken line\n",
+            encoding="utf-8",
+        )
+        project = server_editor.load_project(
+            self.project_path, None, str(self.stickers), no_waveform=True, peaks_per_second=100,
+        )
+        with server_editor.EditorServer(("127.0.0.1", 0), project) as server:
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+                def get(endpoint: str) -> tuple[int, dict]:
+                    try:
+                        with urllib.request.urlopen(f"{base_url}{endpoint}") as response:
+                            return response.status, json.loads(response.read())
+                    except urllib.error.HTTPError as error:
+                        return error.code, json.loads(error.read())
+
+                def post(endpoint: str, payload: dict) -> tuple[int, dict]:
+                    request = urllib.request.Request(
+                        f"{base_url}{endpoint}",
+                        data=json.dumps(payload).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    try:
+                        with urllib.request.urlopen(request) as response:
+                            return response.status, json.loads(response.read())
+                    except urllib.error.HTTPError as error:
+                        return error.code, json.loads(error.read())
+
+                with mock.patch.object(server_editor.EditorServer, "style_catalog_dir",
+                                       return_value=catalog_dir):
+                    # 目录列表
+                    status, result = get("/api/style-catalogs")
+                    self.assertEqual(status, 200)
+                    self.assertTrue(result["exists"])
+                    self.assertEqual([c["name"] for c in result["catalogs"]], ["管人切片"])
+
+                    # 读取单个目录：损坏行跳过并计数
+                    from urllib.parse import quote
+                    status, result = get(f"/api/style-catalog?name={quote('管人切片')}")
+                    self.assertEqual(status, 200)
+                    self.assertEqual(len(result["styles"]), 1)
+                    self.assertEqual(result["styles"][0]["name"], "lika")
+                    self.assertEqual(result["skipped"], 1)
+
+                    # 不存在目录 → 404；坏目录名 → 404
+                    status, _ = get("/api/style-catalog?name=missing")
+                    self.assertEqual(status, 404)
+                    status, _ = get("/api/style-catalog?name=../escape")
+                    self.assertEqual(status, 404)
+
+                # 解析任意 .sty / .ass 文本（文件选择器导入路径）
+                status, result = post("/api/styles/parse", {
+                    "text": "Style: lika,思源黑体 CN Heavy,50,&H00FFFFFF,&H00FFFFFF,&H193A85F0,&H910E0807,0,0,0,0,100,100,0,0,1,4,5,2,135,135,140,1",
+                    "kind": "sty",
+                })
+                self.assertEqual(status, 200)
+                self.assertEqual(result["styles"][0]["name"], "lika")
+
+                status, result = post("/api/styles/parse", {
+                    "text": ("[Script Info]\nPlayResX: 1920\n\n[V4+ Styles]\n"
+                             "Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n"
+                             "[Events]\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,hi\n"),
+                    "kind": "ass",
+                })
+                self.assertEqual(status, 200)
+                self.assertEqual(result["styles"][0]["name"], "Default")
+
+                status, _ = post("/api/styles/parse", {"text": "  ", "kind": "sty"})
+                self.assertEqual(status, 400)
+                status, _ = post("/api/styles/parse", {"text": "x", "kind": "srt"})
+                self.assertEqual(status, 400)
+
+                # 导出端点同批产 SRT + ASS（决策 43⑧）
+                styled = {
+                    "media": str(self.media),
+                    "styles": [
+                        {"name": "Default", "font": "Arial", "font_size": 48,
+                         "primary": "&H00FFFFFF", "secondary": "&H000000FF",
+                         "outline": "&H00000000", "shadow": "&H00000000"},
+                    ],
+                    "segments": [{"start": 0, "end": 1000, "text": "带样式导出"}],
+                }
+                status, _ = post("/api/project", {"project": styled, "filename": None})
+                self.assertEqual(status, 200)
+                status, result = post("/api/export-srt", {"colors": None})
+                self.assertEqual(status, 200)
+                names = {Path(p).suffix for p in result["files"]}
+                self.assertEqual(names, {".srt", ".ass"})
+                self.assertTrue((self.root / "clip.ass").exists())
+                self.assertIn("Style: Default", (self.root / "clip.ass").read_text(encoding="utf-8"))
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+
+
 if __name__ == "__main__":
     unittest.main()

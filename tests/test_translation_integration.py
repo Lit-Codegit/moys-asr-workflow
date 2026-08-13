@@ -155,11 +155,17 @@ class ServeEndpointsTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertTrue(body["ok"])
             names = sorted(Path(p).name for p in body["files"])
+            # 决策 43⑧：SRT 与 ASS 同批产出
             self.assertEqual(names, [
-                "subs.srt", "subs_red.srt", "subs_zh.srt", "subs_zh_red.srt",
+                "subs.ass", "subs.srt", "subs_red.ass", "subs_red.srt",
+                "subs_zh.ass", "subs_zh.srt", "subs_zh_red.ass", "subs_zh_red.srt",
             ])
             # 全量固定导出 + 勾选 red；default 桶未勾选不产生
             self.assertFalse((self.root / "subs_default.srt").exists())
+            self.assertFalse((self.root / "subs_default.ass").exists())
+            # .ass 自带 Default 样式（旧工程无 styles → 自动注入）
+            self.assertIn("Style: Default",
+                          (self.root / "subs_red.ass").read_text(encoding="utf-8"))
 
     def test_translate_endpoint_writes_back_to_mosp(self) -> None:
         project = server_editor.load_project(self.project_path, None, None,

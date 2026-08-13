@@ -914,6 +914,246 @@
     };
   }
 
+  // === ASS 样式工具（决策 43；与 Python ass_style.py / ass_export.py 行为对齐）===
+
+  // Aegisub 默认新文件分辨率（无媒体探测时的 PlayRes 回落）
+  const DEFAULT_PLAYRES = [1280, 720];
+
+  // Aegisub AssStyle 默认值（JSON 镜像）
+  const ASS_STYLE_DEFAULTS = {
+    name: 'Default',
+    font: 'Arial',
+    font_size: 48,
+    primary: '&H00FFFFFF',
+    secondary: '&H000000FF',
+    outline: '&H00000000',
+    shadow: '&H00000000',
+    bold: false,
+    italic: false,
+    underline: false,
+    strikeout: false,
+    scale_x: 100,
+    scale_y: 100,
+    spacing: 0,
+    angle: 0,
+    border_style: 1,
+    outline_w: 2,
+    shadow_w: 2,
+    alignment: 2,
+    margin_l: 10,
+    margin_r: 10,
+    margin_v: 10,
+    encoding: 1,
+  };
+
+  const ASS_COLOR_RE = /^&[hH]([0-9A-Fa-f]{6})([0-9A-Fa-f]{2})?&?$/;
+
+  // 无对应 override 标签的样式专属字段（与 ass_export.py _OVERRIDE_FIELDS 对齐）
+  const ASS_STYLE_ONLY_FIELDS = new Set([
+    'name', 'border_style', 'margin_l', 'margin_r', 'margin_v', 'encoding',
+  ]);
+
+  function normalizeAssColor(color) {
+    // `&H...&` 6/8 位 → 规范化 8 位大写（前两位 alpha + 后六位 BGR）；非法返回 null
+    // 注意：8 位输入时 alpha 是**开头**两位（&HAABBGGRR&），不是尾部
+    if (typeof color !== 'string') return null;
+    const match = ASS_COLOR_RE.exec(color.trim());
+    if (!match) return null;
+    const value = (match[2] ? match[1] + match[2] : match[1]);
+    const full = (value.length === 6 ? `00${value}` : value).toUpperCase();
+    return `&H${full}`;
+  }
+
+  function assColorToHex(color) {
+    // `&H{A}{B}{G}{R}` → CSS #rrggbb（忽略 alpha；供 <input type=color> 使用）
+    const normalized = normalizeAssColor(color);
+    if (!normalized) return '#ffffff';
+    const bgr = normalized.slice(4);
+    return `#${bgr.slice(4, 6)}${bgr.slice(2, 4)}${bgr.slice(0, 2)}`;
+  }
+
+  function assColorToRgba(color) {
+    // `&H{A}{B}{G}{R}` → CSS rgba()（alpha 0 = 不透明）
+    const normalized = normalizeAssColor(color);
+    if (!normalized) return 'rgba(255,255,255,1)';
+    const hex = normalized.slice(2);
+    const a = parseInt(hex.slice(0, 2), 16) / 255;
+    const b = parseInt(hex.slice(2, 4), 16);
+    const g = parseInt(hex.slice(4, 6), 16);
+    const r = parseInt(hex.slice(6, 8), 16);
+    return `rgba(${r},${g},${b},${1 - a})`;
+  }
+
+  function normalizeAssStyle(style) {
+    // 缺失/非法字段按 Aegisub 默认补齐（与 Python format_style_line 容错一致）
+    const merged = { ...ASS_STYLE_DEFAULTS };
+    if (!style || typeof style !== 'object') return merged;
+    for (const [key, value] of Object.entries(style)) {
+      if (!(key in ASS_STYLE_DEFAULTS)) continue;
+      const fallback = ASS_STYLE_DEFAULTS[key];
+      if (typeof fallback === 'number') {
+        merged[key] = (typeof value === 'number' && Number.isFinite(value)) ? value : fallback;
+      } else if (typeof fallback === 'boolean') {
+        merged[key] = typeof value === 'boolean' ? value : fallback;
+      } else if (typeof fallback === 'string') {
+        if (key === 'name' || key === 'font') {
+          merged[key] = typeof value === 'string' && value ? value : fallback;
+        } else {
+          merged[key] = normalizeAssColor(value) || fallback;
+        }
+      }
+    }
+    return merged;
+  }
+
+  function resolveSegmentStyleName(segment, segments, styleNames, colorStyles) {
+    // 决策 43 解析链：段 style_ref > color_styles[有效颜色] > Default
+    const ref = segment?.style_ref;
+    if (typeof ref === 'string' && ref.trim() && styleNames.has(ref.trim())) return ref.trim();
+    const color = effectiveColorName(segment, segments);
+    const bound = color ? colorStyles?.[color] : null;
+    if (typeof bound === 'string' && bound.trim() && styleNames.has(bound.trim())) return bound.trim();
+    return 'Default';
+  }
+
+  function assAlignmentToAnchor(alignment) {
+    // \an 1-9 → 锚点（preview 定位用：pos 落在盒子的哪个角/边/中心）
+    const column = ((alignment - 1) % 3);   // 0=左 1=中 2=右
+    const row = Math.floor((alignment - 1) / 3); // 0=下 1=中 2=上
+    return {
+      x: column === 0 ? 'left' : column === 1 ? 'center' : 'right',
+      y: row === 0 ? 'bottom' : row === 1 ? 'middle' : 'top',
+    };
+  }
+
+  function assStyleToCss(style, overrides) {
+    // 样式 + 行内覆盖 → CSS 近似（决策 43⑥：text-stroke/text-shadow 模拟描边阴影）
+    const base = normalizeAssStyle(style);
+    const ov = (overrides && typeof overrides === 'object') ? overrides : {};
+    const pick = (key, fallback) => (key in ov && ov[key] !== null && ov[key] !== undefined
+      ? ov[key] : fallback);
+    const fontSize = Number(pick('font_size', base.font_size));
+    const outlineW = Number(pick('outline_w', base.outline_w));
+    const shadowW = Number(pick('shadow_w', base.shadow_w));
+    const css = {
+      fontFamily: `"${pick('font', base.font)}"`,
+      fontSize: `${Math.max(1, Number.isFinite(fontSize) ? fontSize : base.font_size)}px`,
+      color: assColorToRgba(pick('primary', base.primary)),
+      fontWeight: pick('bold', base.bold) ? 700 : 400,
+      fontStyle: pick('italic', base.italic) ? 'italic' : 'normal',
+      textDecoration: [
+        pick('underline', base.underline) ? 'underline' : '',
+        pick('strikeout', base.strikeout) ? 'line-through' : '',
+      ].filter(Boolean).join(' '),
+    };
+    const outlineColor = pick('outline', base.outline);
+    if (Number.isFinite(outlineW) && outlineW > 0) {
+      css.webkitTextStroke = `${outlineW}px ${assColorToRgba(outlineColor)}`;
+      css.paintOrder = 'stroke fill';
+    }
+    const shadowColor = pick('shadow', base.shadow);
+    if (Number.isFinite(shadowW) && shadowW > 0) {
+      css.textShadow = `${shadowW}px ${shadowW}px 0 ${assColorToRgba(shadowColor)}`;
+    }
+    return css;
+  }
+
+  function assAnchorPoint(pos, alignment, style, rect, playres) {
+    // 字幕锚点（\an 语义下 pos/对齐+边距 决定）在播放器矩形内的 px 坐标。
+    // 拖动起始用它反推 \pos，保证「无 pos 的字幕从视觉位置开始拖」不跳变。
+    const anchor = assAlignmentToAnchor(alignment);
+    const sx = rect.width / playres[0];
+    const sy = rect.height / playres[1];
+    let left;
+    let top;
+    if (pos && Number.isFinite(pos[0]) && Number.isFinite(pos[1])) {
+      const vp = playresToViewport(pos, playres, rect);
+      left = vp.left;
+      top = vp.top;
+    } else {
+      left = anchor.x === 'left' ? style.margin_l * sx
+        : anchor.x === 'center' ? rect.width / 2
+          : rect.width - style.margin_r * sx;
+      top = anchor.y === 'top' ? style.margin_v * sy
+        : anchor.y === 'middle' ? rect.height / 2
+          : rect.height - style.margin_v * sy;
+    }
+    return { left, top };
+  }
+
+  function assOverlayCss(pos, alignment, style, rect, playres) {
+    // 字幕 overlay 定位 CSS：pos（PlayRes）或样式对齐+边距；锚点按 \an 用 translate 补偿
+    const anchor = assAlignmentToAnchor(alignment);
+    const css = { left: 'auto', right: 'auto', top: 'auto', bottom: 'auto', transform: '' };
+    let tx = '0';
+    let ty = '0';
+    if (pos && Number.isFinite(pos[0]) && Number.isFinite(pos[1])) {
+      const vp = playresToViewport(pos, playres, rect);
+      css.left = `${vp.left}px`;
+      css.top = `${vp.top}px`;
+      if (anchor.x === 'center') tx = '-50%';
+      else if (anchor.x === 'right') tx = '-100%';
+      if (anchor.y === 'middle') ty = '-50%';
+      else if (anchor.y === 'top') ty = '-100%';
+    } else {
+      const sx = rect.width / playres[0];
+      const sy = rect.height / playres[1];
+      if (anchor.x === 'left') css.left = `${style.margin_l * sx}px`;
+      else if (anchor.x === 'center') { css.left = '50%'; tx = '-50%'; }
+      else css.right = `${style.margin_r * sx}px`;
+      if (anchor.y === 'top') css.top = `${style.margin_v * sy}px`;
+      else if (anchor.y === 'middle') { css.top = '50%'; ty = '-50%'; }
+      else css.bottom = `${style.margin_v * sy}px`;
+    }
+    css.transform = (tx === '0' && ty === '0') ? '' : `translate(${tx}, ${ty})`;
+    return css;
+  }
+
+  function playresToViewport(pos, playres, rect) {
+    // PlayRes 绝对坐标 → 播放器矩形内的 px 坐标（含中心锚点偏移由调用方处理）
+    const x = Number(pos?.[0]);
+    const y = Number(pos?.[1]);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return {
+      left: x * rect.width / playres[0],
+      top: y * rect.height / playres[1],
+    };
+  }
+
+  function viewportToPlayres(offset, playres, rect) {
+    // 播放器矩形内 px 偏移 → PlayRes 绝对坐标（四舍五入 + 钳制）
+    const x = Math.max(0, Math.min(playres[0], Math.round(offset.left * playres[0] / rect.width)));
+    const y = Math.max(0, Math.min(playres[1], Math.round(offset.top * playres[1] / rect.height)));
+    return [x, y];
+  }
+
+  function normalizeOverride(overrides) {
+    // 行内覆盖清洗：只留合法字段；pos/fade 必须是二元数字数组；非法字段丢弃。
+    // 样式专属字段（border_style/边距/encoding/name）无对应 override 标签，忽略。
+    if (!overrides || typeof overrides !== 'object') return {};
+    const cleaned = {};
+    for (const [key, value] of Object.entries(overrides)) {
+      if (key === 'pos' || key === 'fade') {
+        if (Array.isArray(value) && value.length === 2
+            && value.every((n) => typeof n === 'number' && Number.isFinite(n))) {
+          cleaned[key] = [Math.round(value[0]), Math.round(value[1])];
+        }
+        continue;
+      }
+      if (!(key in ASS_STYLE_DEFAULTS) || ASS_STYLE_ONLY_FIELDS.has(key)) continue;
+      const fallback = ASS_STYLE_DEFAULTS[key];
+      if (typeof fallback === 'number' && typeof value === 'number' && Number.isFinite(value)) {
+        cleaned[key] = value;
+      } else if (typeof fallback === 'boolean' && typeof value === 'boolean') {
+        cleaned[key] = value;
+      } else if (typeof fallback === 'string' && typeof value === 'string') {
+        if (key === 'name' || key === 'font') cleaned[key] = value;
+        else if (normalizeAssColor(value)) cleaned[key] = normalizeAssColor(value);
+      }
+    }
+    return cleaned;
+  }
+
   window.AsrEditorUtils = {
     buildReplacementPreview,
     countTextUnits,
@@ -958,5 +1198,19 @@
     clampPreviewGeometry,
     previewGeometryToCss,
     applyPreviewGeometryDelta,
+    ASS_STYLE_DEFAULTS,
+    DEFAULT_PLAYRES,
+    normalizeAssColor,
+    assColorToHex,
+    assColorToRgba,
+    normalizeAssStyle,
+    resolveSegmentStyleName,
+    assAlignmentToAnchor,
+    assStyleToCss,
+    playresToViewport,
+    viewportToPlayres,
+    assAnchorPoint,
+    assOverlayCss,
+    normalizeOverride,
   };
 })();

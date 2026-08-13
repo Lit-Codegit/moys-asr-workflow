@@ -225,9 +225,49 @@ function snapshotSegments() {
   // _dirty 也保留，恢复后能再次导出"工程文件"时正确标记
   return JSON.parse(JSON.stringify(DATA.segments));
 }
+function snapshotStyles() {
+  // 决策 43：样式目录/颜色映射随 segments 记录一起快照（样式管理器操作可撤销）
+  return {
+    styles: DATA.styles ? JSON.parse(JSON.stringify(DATA.styles)) : null,
+    colorStyles: DATA.color_styles ? JSON.parse(JSON.stringify(DATA.color_styles)) : null,
+  };
+}
 function pushUndo(label) {
-  editorHistory.push({ kind: 'segments', label: label || '编辑', segs: snapshotSegments() });
+  editorHistory.push({ kind: 'segments', label: label || '编辑', segs: snapshotSegments(), ...snapshotStyles() });
   updateUndoRedoButtons();
+}
+// === ASS 样式（决策 43）===
+function ensureProjectStyles(raw) {
+  // 旧工程无 styles → 注入 Aegisub Default；无 Default → 补入（无感迁移，幂等）
+  const GEO = window.AsrEditorUtils;
+  const styles = (Array.isArray(raw) ? raw : []).map(s => GEO.normalizeAssStyle(s));
+  if (!styles.some(s => s.name === 'Default')) {
+    styles.unshift({ ...GEO.ASS_STYLE_DEFAULTS });
+  }
+  return styles;
+}
+function styleNamesSet() {
+  return new Set((DATA.styles || []).map(s => s.name));
+}
+function styleByName(name) {
+  return (DATA.styles || []).find(s => s.name === name) || null;
+}
+function effectiveStyleOf(seg) {
+  // 解析链（与 ass_export.py 一致）：style_ref > color_styles[有效颜色] > Default
+  const GEO = window.AsrEditorUtils;
+  const name = GEO.resolveSegmentStyleName(seg, DATA.segments, styleNamesSet(), DATA.color_styles || {});
+  return styleByName(name) || GEO.normalizeAssStyle({});
+}
+function effectiveOverridesOf(seg) {
+  return window.AsrEditorUtils.normalizeOverride(seg?.overrides);
+}
+function mediaPlayres() {
+  // PlayRes = 视频分辨率（videoWidth 未知时回落 Aegisub 默认 1280×720）
+  if (player && Number.isFinite(player.videoWidth) && player.videoWidth > 0
+      && Number.isFinite(player.videoHeight) && player.videoHeight > 0) {
+    return [player.videoWidth, player.videoHeight];
+  }
+  return window.AsrEditorUtils.DEFAULT_PLAYRES;
 }
 function pushLayoutUndo(label, snapshot) {
   if (!snapshot) return;
@@ -248,9 +288,9 @@ function pushPreviewUndo(label, preview) {
   updateUndoRedoButtons();
 }
 function snapshotPreviewState() {
+  // 决策 43：preview.subtitle 几何废弃，快照只含开关与表情包层
   return {
     overlay: !!overlayToggle.checked,
-    subtitle: { ...getPreviewGeometry(), ...getSubtitleAppearance() },
     sticker: { ...getStickerGeometry() },
   };
 }
@@ -258,7 +298,7 @@ function applyPreviewState(state) {
   if (!state || typeof state.overlay !== 'boolean') return;
   overlayToggle.checked = state.overlay;
   updateEditorSettings({ overlayEnabled: state.overlay });
-  if (state.subtitle) setPreviewGeometry(state.subtitle, { markDirty: true });
+  // 旧历史记录可能携带 subtitle 几何——决策 43 起忽略
   if (state.sticker) setStickerGeometry(state.sticker, { markDirty: true });
   if (!state.overlay) overlayEl.classList.add('hidden');
   else update();
@@ -278,7 +318,7 @@ function snapshotCurrentForKind(kind, label) {
   if (kind === 'preview') {
     return { kind: 'preview', label: label || '预览', preview: snapshotPreviewState() };
   }
-  return { kind: 'segments', label: label || '编辑', segs: snapshotSegments() };
+  return { kind: 'segments', label: label || '编辑', segs: snapshotSegments(), ...snapshotStyles() };
 }
 function applyHistoryRecord(record) {
   if (record.kind === 'layout') {
@@ -301,6 +341,9 @@ function applyHistoryRecord(record) {
   }
   DATA.segments.length = 0;
   record.segs.forEach(s => DATA.segments.push(s));
+  // 决策 43：旧历史记录无 styles/colorStyles 字段 → 保持当前值不动
+  if (record.styles !== undefined) DATA.styles = ensureProjectStyles(record.styles);
+  if (record.colorStyles !== undefined) DATA.color_styles = record.colorStyles;
   // 历史恢复会改变下标身份；丢弃旧面板绑定，避免 clearSelection() 把旧面板
   // 内容提交到恢复后占据同一下标的另一条字幕，并因此生成新历史、清空 redo。
   currentCuePanelIdx = -1;
@@ -348,7 +391,7 @@ function historyGuarded() {
   }
   return replaceModal.classList.contains('show')
       || stickerModal.classList.contains('show')
-      || stickerPreviewModal.classList.contains('show')
+      || (stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))
       || projectMediaModal.classList.contains('show')
       || document.getElementById('sticker-root-modal').classList.contains('show');
 }
@@ -2742,7 +2785,7 @@ document.addEventListener('keydown', (e) => {
   )) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -2937,7 +2980,7 @@ document.addEventListener('keydown', (e) => {
   if (editingState || isTextEditingTarget(e)) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
   if (!isPlaybackKeyboardTarget(e) && isNativeKeyboardControl(e)) return;
@@ -2972,7 +3015,7 @@ document.addEventListener('keydown', (e) => {
   if (editingState) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   const a = document.activeElement;
   if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable)) return;
@@ -3005,7 +3048,7 @@ document.addEventListener('keydown', (e) => {
   )) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -3063,7 +3106,7 @@ document.addEventListener('keydown', (e) => {
   )) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -3088,7 +3131,7 @@ document.addEventListener('keydown', (e) => {
   )) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -3110,7 +3153,7 @@ document.addEventListener('keydown', (e) => {
   )) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -3134,7 +3177,7 @@ document.addEventListener('keydown', (e) => {
   )) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -3168,7 +3211,7 @@ document.addEventListener('keydown', (e) => {
   )) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -3204,7 +3247,7 @@ document.addEventListener('keydown', (e) => {
   if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable)) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -3237,7 +3280,7 @@ document.addEventListener('keydown', (e) => {
   // modal 打开时不触发
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -3259,7 +3302,7 @@ document.addEventListener('keydown', (e) => {
     if (ctxmenu.classList.contains('show')) return;
     if (replaceModal.classList.contains('show')) return;
     if (stickerModal.classList.contains('show')) return;
-    if (stickerPreviewModal.classList.contains('show')) return;
+    if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
     if (projectMediaModal.classList.contains('show')) return;
     if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
     if (waveformEditor.getTool() !== 'razor') return;
@@ -3272,7 +3315,7 @@ document.addEventListener('keydown', (e) => {
   if (editingState) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -3292,7 +3335,7 @@ document.addEventListener('keydown', (e) => {
   if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable)) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -3315,7 +3358,7 @@ document.addEventListener('keydown', (e) => {
   if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable)) return;
   if (replaceModal.classList.contains('show')) return;
   if (stickerModal.classList.contains('show')) return;
-  if (stickerPreviewModal.classList.contains('show')) return;
+  if ((stickerPreviewModal.classList.contains('show') || stylePanelModal.classList.contains('show') || styleManagerModal.classList.contains('show') || styleConflictModal.classList.contains('show'))) return;
   if (projectMediaModal.classList.contains('show')) return;
   if (document.getElementById('sticker-root-modal').classList.contains('show')) return;
   if (ctxmenu.classList.contains('show')) return;
@@ -3475,8 +3518,8 @@ function applyStickerGeometryToDom(geo) {
   stickerOverlayLayer.style.bottom = 'auto';
 }
 // 只有当对应预览开关开启时才允许几何编辑（关闭时字幕盒完全隐藏、表情包盒不拦截指针）。
+// 决策 43：字幕盒不再做几何编辑（位置由段级 overrides.pos 拖动写入），仅表情包盒保留。
 function refreshPreviewGeometryEditable() {
-  overlayEl.classList.toggle('geometry-enabled', !!overlayToggle.checked);
   stickerOverlayLayer.classList.toggle('geometry-enabled', !!stickerOverlayToggle?.checked);
 }
 
@@ -3541,9 +3584,105 @@ function bindPreviewBoxPointerEvents(el, target) {
   el.addEventListener('pointerup', endPreviewGesture);
   el.addEventListener('pointercancel', endPreviewGesture);
 }
-bindPreviewBoxPointerEvents(overlayEl, 'subtitle');
+// === ASS 字幕预览（决策 43）===
+// 字幕盒位置/样式由「段样式 + 行内覆盖」驱动，旧全局预览框（preview.subtitle）废弃。
+// 拖动 = 写段级 overrides.pos（PlayRes 坐标，一手势一撤销）；双击 = 打开样式面板。
+function applyOverlayCssProps(css) {
+  overlayEl.style.left = css.left;
+  overlayEl.style.right = css.right;
+  overlayEl.style.top = css.top;
+  overlayEl.style.bottom = css.bottom;
+  overlayEl.style.transform = css.transform;
+  overlayEl.style.width = 'auto';
+  overlayEl.style.height = 'auto';
+}
+function currentAssLayout(seg) {
+  const style = effectiveStyleOf(seg);
+  const overrides = effectiveOverridesOf(seg);
+  const alignment = (overrides.alignment ?? style.alignment) || 2;
+  const rect = playerStage.getBoundingClientRect();
+  const playres = mediaPlayres();
+  const css = window.AsrEditorUtils.assOverlayCss(
+    overrides.pos || null, alignment, style, rect, playres);
+  return { style, overrides, alignment, rect, playres, css };
+}
+function applyAssOverlayStyle(seg, tMs) {
+  const layout = currentAssLayout(seg);
+  const span = overlayTextEl;
+  const textCss = window.AsrEditorUtils.assStyleToCss(layout.style, layout.overrides);
+  span.style.fontFamily = textCss.fontFamily;
+  span.style.fontSize = textCss.fontSize;
+  span.style.color = textCss.color;
+  span.style.fontWeight = textCss.fontWeight;
+  span.style.fontStyle = textCss.fontStyle;
+  span.style.textDecoration = textCss.textDecoration;
+  span.style.webkitTextStroke = textCss.webkitTextStroke || '';
+  span.style.textShadow = textCss.textShadow || '';
+  span.style.paintOrder = textCss.paintOrder || '';
+  span.classList.add('ass-styled');  // 去掉药丸样式（editor.css）
+  applyOverlayCssProps(layout.css);
+  // 淡入淡出（\fad 近似）：入场按 elapsed 比例，出场用 CSS transition
+  const fade = layout.overrides.fade;
+  const into = tMs - seg.start;
+  const remaining = seg.end - tMs;
+  if (fade && fade[0] > 0 && into < fade[0]) {
+    overlayEl.style.transition = 'none';
+    overlayEl.style.opacity = String(Math.max(0, Math.min(1, into / fade[0])));
+  } else if (fade && fade[1] > 0 && remaining < fade[1]) {
+    overlayEl.style.transition = `opacity ${fade[1]}ms linear`;
+    overlayEl.style.opacity = '0';
+  } else {
+    overlayEl.style.transition = 'none';
+    overlayEl.style.opacity = '1';
+  }
+}
+let assDrag = null;  // { pointerId, startX, startY, anchor, idx, undoPushed }
+overlayEl.addEventListener('pointerdown', (event) => {
+  if (event.button !== 0) return;
+  const seg = lastActive >= 0 ? DATA.segments[lastActive] : null;
+  if (!seg) return;
+  event.preventDefault();
+  const layout = currentAssLayout(seg);
+  const anchor = window.AsrEditorUtils.assAnchorPoint(
+    layout.overrides.pos || null, layout.alignment, layout.style, layout.rect, layout.playres);
+  assDrag = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    anchor,
+    idx: lastActive,
+    undoPushed: false,
+  };
+  try { event.target.setPointerCapture?.(event.pointerId); } catch (_) {}
+});
+overlayEl.addEventListener('pointermove', (event) => {
+  if (!assDrag || event.pointerId !== assDrag.pointerId) return;
+  const seg = DATA.segments[assDrag.idx];
+  if (!seg) return;
+  const rect = playerStage.getBoundingClientRect();
+  const playres = mediaPlayres();
+  const next = window.AsrEditorUtils.viewportToPlayres({
+    left: assDrag.anchor.left + (event.clientX - assDrag.startX),
+    top: assDrag.anchor.top + (event.clientY - assDrag.startY),
+  }, playres, rect);
+  if (!assDrag.undoPushed) { pushUndo('拖动字幕位置'); assDrag.undoPushed = true; }
+  if (!seg.overrides || typeof seg.overrides !== 'object') seg.overrides = {};
+  seg.overrides.pos = next;
+  applyOverlayCssProps(currentAssLayout(seg).css);
+});
+function endAssDrag(event) {
+  if (!assDrag || event.pointerId !== assDrag.pointerId) return;
+  try { event.target.releasePointerCapture?.(event.pointerId); } catch (_) {}
+  assDrag = null;
+}
+overlayEl.addEventListener('pointerup', endAssDrag);
+overlayEl.addEventListener('pointercancel', endAssDrag);
+overlayEl.addEventListener('dblclick', (event) => {
+  event.preventDefault();
+  if (lastActive >= 0 && DATA.segments[lastActive]) openStylePanel(lastActive);
+});
 
-// --- 键盘操作（聚焦时），字幕预览与表情包预览共用 ---
+// --- 键盘操作（聚焦时），仅表情包预览盒使用（绑定见 stickerOverlayLayer 创建处） ---
 // 方向键移动 1%；Shift 加速到 10%；Alt+方向缩放；Enter 切换 editable；Esc 失焦。
 function handlePreviewBoxKeydown(event, target) {
   if (!previewTargetEnabled(target)) return;
@@ -3570,8 +3709,6 @@ function handlePreviewBoxKeydown(event, target) {
     : GEO_UTILS.applyPreviewGeometryDelta(startGeo, 'move', dx, dy);
   setTargetGeometry(target, next);
 }
-overlayEl.addEventListener('keydown', (event) => handlePreviewBoxKeydown(event, 'subtitle'));
-
 // 点击预览框（字幕/表情包）以外的地方：失焦并退出控制点编辑态，调整框随之隐藏。
 // 捕获阶段监听，避免其他组件 pointerdown 的 stopPropagation 跳过失焦。
 document.addEventListener('pointerdown', (event) => {
@@ -3664,12 +3801,13 @@ function update() {
     }
     lastActive = idx;
   }
-  // overlay（禁用项不在画面上显示字幕文本）
+  // overlay：按段样式渲染（决策 43：CSS 近似 + \pos/\fad；禁用项不显示）
   if (overlayToggle.checked) {
     const seg = idx >= 0 ? DATA.segments[idx] : null;
     if (seg && !seg.disabled && tMs >= seg.start && tMs <= seg.end) {
       overlayEl.classList.remove('hidden');
       overlayTextEl.textContent = seg.text;
+      applyAssOverlayStyle(seg, tMs);
     } else {
       overlayEl.classList.add('hidden');
     }
@@ -3735,23 +3873,24 @@ stickerOverlayToggle?.addEventListener('change', () => {
   update();
 });
 
-// 初次应用（不弄脏工程）：字幕与表情包预览几何。必须在 stickerOverlayLayer 创建之后执行（TDZ）。
-setPreviewGeometry(getPreviewGeometry(), { markDirty: false });
+// 初次应用（不弄脏工程）：表情包预览几何。字幕盒位置由段样式驱动（决策 43），
+// 旧 preview.subtitle 不再应用。必须在 stickerOverlayLayer 创建之后执行（TDZ）。
 setStickerGeometry(getStickerGeometry(), { markDirty: false });
 refreshPreviewGeometryEditable();
 
 bindPlayerEvents(player);
 overlayToggle.addEventListener('change', () => {
-  // change 触发时 checked 已是新值；压入改变前的状态（overlay 取反、几何为当前值）作为撤销点
-  pushPreviewUndo('切换字幕预览', {
-    overlay: !overlayToggle.checked,
-    subtitle: { ...getPreviewGeometry() },
-  });
+  // change 触发时 checked 已是新值；压入改变前的状态作为撤销点（决策 43：不含字幕几何）
+  pushPreviewUndo('切换字幕预览', { overlay: !overlayToggle.checked });
   updateEditorSettings({ overlayEnabled: overlayToggle.checked });
   refreshPreviewGeometryEditable();
   if (!overlayToggle.checked) overlayEl.classList.add('hidden');
   else update();
 });
+
+// 决策 43：启动时样式目录无感迁移（旧工程注入 Aegisub Default）
+DATA.styles = ensureProjectStyles(DATA.styles);
+if (!DATA.color_styles || typeof DATA.color_styles !== 'object') DATA.color_styles = null;
 
 // === 下载 ===
 // 程序内开关（不暴露 GUI）：导出 SRT 时保留禁用项的时间轴序号但内容替换为空白
@@ -3971,6 +4110,8 @@ function buildJson() {
         sticker_ref: s.sticker_ref || null,
         color: s.color || null,
         color_ref: s.color_ref || null,
+        style_ref: s.style_ref || null,
+        overrides: s.overrides || null,
       };
       // 持久化"已改动"标记，便于二次打开时仍能识别脏行 / 离开提醒等
       if (s._dirty) o._dirty = true;
@@ -3983,8 +4124,10 @@ function buildJson() {
   if (DATA.gap_remove) out.gap_remove = normalizedGapRemoveData(DATA.gap_remove);
   const workspace = buildCurrentWorkspaceData();
   if (workspace) out.workspace = workspace;
-  // 预览几何：始终写入归一化后的当前几何，便于跨机/重开保持位置。
-  out.preview = { subtitle: { ...getPreviewGeometry(), ...getSubtitleAppearance() } };
+  if (DATA.styles) out.styles = DATA.styles;
+  if (DATA.color_styles) out.color_styles = DATA.color_styles;
+  // 预览几何：决策 43 起字幕预览框废弃（位置由段级 overrides.pos 驱动），仅保留表情包层。
+  out.preview = { sticker: { ...getStickerGeometry() } };
   return JSON.stringify(out, null, 2);
 }
 
@@ -4533,6 +4676,8 @@ function confirmColorExport() {
 }
 
 function configureServerExportUi() {
+  // hasServer 是 configureServerSaveControls 的局部变量，这里独立计算（既有 bug 修复）
+  const hasServer = !!(SERVER_CONFIG && SERVER_CONFIG.saveUrl);
   if (exportServerSeparator) exportServerSeparator.hidden = !hasServer;
   if (exportServerNote) {
     exportServerNote.hidden = !hasServer;
@@ -5455,11 +5600,15 @@ async function openProjectFile(file, options = {}) {
     DATA.workspace = data.workspace || null;
     DATA.gap_remove = data.gap_remove || null;
     gapRemoveDirty = false;
-    // 预览几何：归一化后应用；缺失时回退到 legacy 默认，且不弄脏工程。
+    // 预览几何：决策 43 起字幕预览框废弃（位置由段级 overrides.pos 驱动），
+    // 旧工程的 preview.subtitle 忽略；仅表情包层继续使用归一化几何。
     DATA.preview = (data.preview && typeof data.preview === 'object') ? data.preview : null;
-    setPreviewGeometry(getPreviewGeometry(), { markDirty: false });
     setStickerGeometry(getStickerGeometry(), { markDirty: false });
     refreshPreviewGeometryEditable();
+    // 决策 43：样式目录无感迁移——旧工程注入 Aegisub Default
+    DATA.styles = ensureProjectStyles(data.styles);
+    DATA.color_styles = (data.color_styles && typeof data.color_styles === 'object')
+      ? data.color_styles : null;
     if (data.sticker_root) STICKER_ROOT = data.sticker_root;
     DATA.segments.length = 0;
     data.segments.forEach((segment) => DATA.segments.push(segment));
@@ -6769,4 +6918,538 @@ hideDisabledToggle.addEventListener('change', () => {
 // 离开提示
 window.addEventListener('beforeunload', (e) => {
   if (hasUnsavedProjectChanges()) { e.preventDefault(); e.returnValue = ''; }
+});
+
+// === ASS 样式面板 / 样式管理器（决策 43）===
+// Aegisub Style Editor 同款字段布局（web 重画）；序列化逻辑见 ass_export.py。
+const stylePanelModal = document.getElementById('style-panel-modal');
+const stylePanelTitle = document.getElementById('style-panel-title');
+const stylePanelSegmentInfo = document.getElementById('style-panel-segment-info');
+const stylePanelFields = document.getElementById('style-panel-fields');
+const stylePanelOk = document.getElementById('style-panel-ok');
+const stylePanelCancel = document.getElementById('style-panel-cancel');
+const stylePanelReset = document.getElementById('style-panel-reset');
+const styleManagerModal = document.getElementById('style-manager-modal');
+const styleConflictModal = document.getElementById('style-conflict-modal');
+
+function tr(text) {
+  const i18n = window.MAWE_I18N;
+  return (i18n && typeof i18n.translateText === 'function') ? i18n.translateText(text) : text;
+}
+function assEl(tag, attrs = {}, children = []) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(attrs)) {
+    if (key === 'class') node.className = value;
+    else if (key.startsWith('on')) node.addEventListener(key.slice(2), value);
+    else node.setAttribute(key, value);
+  }
+  for (const child of [].concat(children)) {
+    node.append(child.nodeType ? child : document.createTextNode(String(child)));
+  }
+  return node;
+}
+function assColorToInput(ass) { return window.AsrEditorUtils.assColorToHex(ass); }
+function inputToAssColor(hex, oldAss) {
+  // <input type=color> 只给 RGB；保留原 alpha（&HAABBGGRR 前两位）
+  const old = window.AsrEditorUtils.normalizeAssColor(oldAss) || '&H00FFFFFF';
+  const a = old.slice(2, 4);
+  const r = hex.slice(1, 3);
+  const g = hex.slice(3, 5);
+  const b = hex.slice(5, 7);
+  return `&H${a}${b}${g}${r}`.toUpperCase();
+}
+
+let stylePanelContext = null;  // { mode: 'segment'|'style', idx?, styleName? }
+let stylePanelState = {};      // 面板编辑中的字段（segment 模式含 style_ref/pos/fade）
+
+const ASS_PANEL_FIELDS = [
+  { key: 'font', label: '字体', type: 'text', wide: true },
+  { key: 'font_size', label: '字号', type: 'number' },
+  { key: 'bold', label: '粗体', type: 'check' },
+  { key: 'italic', label: '斜体', type: 'check' },
+  { key: 'underline', label: '下划线', type: 'check' },
+  { key: 'strikeout', label: '删除线', type: 'check' },
+  { key: 'primary', label: '主色', type: 'color' },
+  { key: 'secondary', label: '次色', type: 'color' },
+  { key: 'outline', label: '描边色', type: 'color' },
+  { key: 'shadow', label: '阴影色', type: 'color' },
+  { key: 'outline_w', label: '描边宽度', type: 'number' },
+  { key: 'shadow_w', label: '阴影距离', type: 'number' },
+  { key: 'scale_x', label: '缩放 X%', type: 'number' },
+  { key: 'scale_y', label: '缩放 Y%', type: 'number' },
+  { key: 'spacing', label: '字距', type: 'number' },
+  { key: 'angle', label: '旋转°', type: 'number' },
+];
+
+function assFieldRow(labelText, control, mode = '') {
+  const wrap = assEl('label', { class: `ass-field ${mode}` });
+  wrap.append(assEl('span', { class: 'ass-field-label' }, tr(labelText)), control);
+  return wrap;
+}
+
+function renderStylePanel() {
+  const GEO = window.AsrEditorUtils;
+  const grid = assEl('div', { class: 'ass-style-grid' });
+  if (stylePanelContext.mode === 'segment') {
+    // 段级直选（空 = 继承颜色绑定）
+    const styleSel = assEl('select');
+    styleSel.append(assEl('option', { value: '' }, tr('继承颜色绑定')));
+    (DATA.styles || []).forEach((s) => styleSel.append(assEl('option', { value: s.name }, s.name)));
+    styleSel.value = stylePanelState.style_ref || '';
+    styleSel.addEventListener('change', () => {
+      stylePanelState.style_ref = styleSel.value || null;
+    });
+    grid.append(assFieldRow('样式', styleSel, 'wide'));
+  }
+  ASS_PANEL_FIELDS.forEach((def) => {
+    let control;
+    if (def.type === 'check') {
+      control = assEl('input', { type: 'checkbox' });
+      control.checked = !!stylePanelState[def.key];
+      control.addEventListener('change', () => { stylePanelState[def.key] = control.checked; });
+    } else if (def.type === 'color') {
+      control = assEl('input', { type: 'color' });
+      control.value = GEO.assColorToHex(stylePanelState[def.key]);
+      control.addEventListener('input', () => {
+        stylePanelState[def.key] = inputToAssColor(control.value, stylePanelState[def.key]);
+      });
+    } else {
+      control = assEl('input', {
+        type: 'text',
+        inputmode: def.type === 'number' ? 'decimal' : undefined,
+        autocomplete: 'off',
+      });
+      control.value = (stylePanelState[def.key] ?? '');
+      control.addEventListener('input', () => {
+        stylePanelState[def.key] = def.type === 'number' ? Number(control.value) : control.value;
+      });
+    }
+    grid.append(assFieldRow(def.label, control, def.wide ? 'wide' : ''));
+  });
+  // 对齐 3×3 网格（\an 编号，Aegisub 同款布局：上 7/8/9 中 4/5/6 下 1/2/3）
+  const alignWrap = assEl('div', { class: 'ass-field ass-field-wide' });
+  alignWrap.append(assEl('span', { class: 'ass-field-label' }, tr('对齐')));
+  const alignGrid = assEl('div', { class: 'ass-align-grid' });
+  [7, 8, 9, 4, 5, 6, 1, 2, 3].forEach((n) => {
+    const btn = assEl('button', { type: 'button', class: `ass-align-cell${stylePanelState.alignment === n ? ' active' : ''}` }, String(n));
+    btn.addEventListener('click', () => {
+      stylePanelState.alignment = n;
+      renderStylePanel();
+    });
+    alignGrid.append(btn);
+  });
+  alignWrap.append(alignGrid);
+  grid.append(alignWrap);
+  if (stylePanelContext.mode === 'segment') {
+    // \pos（拖动写入的值也可在此手改/清除）与 \fad
+    const posWrap = assEl('div', { class: 'ass-field ass-field-wide' });
+    posWrap.append(assEl('span', { class: 'ass-field-label' }, tr('位置（PlayRes）')));
+    const posX = assEl('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off' });
+    const posY = assEl('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off' });
+    posX.value = stylePanelState.pos ? stylePanelState.pos[0] : '';
+    posY.value = stylePanelState.pos ? stylePanelState.pos[1] : '';
+    const setPos = () => {
+      const x = Number(posX.value);
+      const y = Number(posY.value);
+      stylePanelState.pos = (Number.isFinite(x) && Number.isFinite(y)) ? [x, y] : null;
+    };
+    posX.addEventListener('input', setPos);
+    posY.addEventListener('input', setPos);
+    const clearPos = assEl('button', { type: 'button' }, tr('清除位置'));
+    clearPos.addEventListener('click', () => {
+      stylePanelState.pos = null;
+      posX.value = '';
+      posY.value = '';
+    });
+    posWrap.append(posX, posY, clearPos);
+    grid.append(posWrap);
+    const fadeWrap = assEl('div', { class: 'ass-field ass-field-wide' });
+    fadeWrap.append(assEl('span', { class: 'ass-field-label' }, tr('淡入/淡出 ms')));
+    const fadeIn = assEl('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off' });
+    const fadeOut = assEl('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off' });
+    fadeIn.value = stylePanelState.fade ? stylePanelState.fade[0] : '';
+    fadeOut.value = stylePanelState.fade ? stylePanelState.fade[1] : '';
+    const setFade = () => {
+      const a = Number(fadeIn.value);
+      const b = Number(fadeOut.value);
+      stylePanelState.fade = (Number.isFinite(a) && Number.isFinite(b)) ? [a, b] : null;
+    };
+    fadeIn.addEventListener('input', setFade);
+    fadeOut.addEventListener('input', setFade);
+    fadeWrap.append(fadeIn, fadeOut);
+    grid.append(fadeWrap);
+  }
+  stylePanelFields.replaceChildren(grid);
+}
+
+function openStylePanel(idx) {
+  const seg = DATA.segments[idx];
+  if (!seg) return;
+  const style = effectiveStyleOf(seg);
+  const overrides = effectiveOverridesOf(seg);
+  stylePanelContext = { mode: 'segment', idx };
+  stylePanelState = { ...style, ...overrides };
+  stylePanelState.style_ref = seg.style_ref || null;
+  stylePanelState.pos = overrides.pos || null;
+  stylePanelState.fade = overrides.fade || null;
+  stylePanelTitle.textContent = tr('字幕样式');
+  stylePanelSegmentInfo.textContent = `${tr('第')} ${idx + 1} ${tr('条')}：${String(seg.text || '').slice(0, 60)}`;
+  renderStylePanel();
+  stylePanelModal.classList.add('show');
+}
+
+function openStyleEditorForStyle(name) {
+  const style = styleByName(name);
+  if (!style) return;
+  stylePanelContext = { mode: 'style', styleName: name };
+  stylePanelState = { ...style };
+  stylePanelTitle.textContent = `${tr('编辑样式')}：${name}`;
+  stylePanelSegmentInfo.textContent = tr('改动对所有引用该样式的字幕生效');
+  renderStylePanel();
+  stylePanelModal.classList.add('show');
+}
+
+function closeStylePanel() {
+  stylePanelModal.classList.remove('show');
+  stylePanelContext = null;
+}
+
+function commitStylePanel() {
+  const ctx = stylePanelContext;
+  if (!ctx) return;
+  const { style_ref, pos, fade, ...styleFields } = stylePanelState;
+  const GEO = window.AsrEditorUtils;
+  if (ctx.mode === 'segment') {
+    const seg = DATA.segments[ctx.idx];
+    if (!seg) return;
+    pushUndo('修改字幕样式');
+    if (style_ref) seg.style_ref = style_ref;
+    else delete seg.style_ref;
+    // 只写与有效样式不同的字段（显式覆盖；与 ass_export 语义一致）
+    const style = effectiveStyleOf(seg);
+    const overrides = {};
+    for (const [key, value] of Object.entries(styleFields)) {
+      if (key === 'alignment' && !Number.isFinite(Number(value))) continue;
+      if (value === style[key]) continue;
+      if (typeof value === 'number' && !Number.isFinite(value)) continue;
+      overrides[key] = value;
+    }
+    const clean = GEO.normalizeOverride(overrides);
+    if (pos) clean.pos = [Math.round(pos[0]), Math.round(pos[1])];
+    if (fade) clean.fade = [Math.round(fade[0]), Math.round(fade[1])];
+    if (Object.keys(clean).length) seg.overrides = clean;
+    else delete seg.overrides;
+    renderAll();
+  } else {
+    const style = styleByName(ctx.styleName);
+    if (!style) return;
+    pushUndo('修改样式');
+    Object.assign(style, GEO.normalizeAssStyle(styleFields));
+    renderAll();
+  }
+  closeStylePanel();
+  update();
+}
+
+stylePanelOk.addEventListener('click', commitStylePanel);
+stylePanelCancel.addEventListener('click', closeStylePanel);
+stylePanelReset.addEventListener('click', () => {
+  const ctx = stylePanelContext;
+  if (!ctx) return;
+  if (ctx.mode === 'segment') {
+    const seg = DATA.segments[ctx.idx];
+    if (!seg) return;
+    pushUndo('重置字幕样式');
+    delete seg.style_ref;
+    delete seg.overrides;
+    renderAll();
+    closeStylePanel();
+    update();
+    flashHint(tr('已恢复该段的样式默认值'));
+  } else {
+    const style = styleByName(ctx.styleName);
+    if (!style) return;
+    pushUndo('重置样式');
+    DATA.styles[DATA.styles.indexOf(style)] = { ...window.AsrEditorUtils.ASS_STYLE_DEFAULTS, name: ctx.styleName };
+    renderAll();
+    closeStylePanel();
+    update();
+    flashHint(tr('已恢复样式默认值'));
+  }
+});
+[stylePanelModal, styleManagerModal, styleConflictModal].forEach((modal) => {
+  modal?.addEventListener('click', (event) => {
+    if (event.target !== modal) return;
+    if (modal === stylePanelModal) closeStylePanel();
+    else modal.classList.remove('show');
+  });
+});
+
+// === 样式管理器 ===
+let styleManagerSelected = { kind: '', name: '' };
+let styleCatalogs = [];
+
+function renderStyleManagerLists() {
+  const projectList = document.getElementById('style-manager-project-list');
+  projectList.replaceChildren(...(DATA.styles || []).map((s) => {
+    const li = assEl('li', { class: `${s.name === 'Default' ? 'default ' : ''}${styleManagerSelected.kind === 'project' && styleManagerSelected.name === s.name ? 'selected' : ''}` }, s.name);
+    li.addEventListener('click', () => {
+      styleManagerSelected = { kind: 'project', name: s.name };
+      renderStyleManagerLists();
+    });
+    return li;
+  }));
+  const catalogList = document.getElementById('style-manager-catalog-list');
+  catalogList.replaceChildren(...styleCatalogs.map((c) => {
+    const li = assEl('li', { class: styleManagerSelected.kind === 'catalog' && styleManagerSelected.name === c.name ? 'selected' : '' }, `${c.name}`);
+    li.addEventListener('click', () => {
+      styleManagerSelected = { kind: 'catalog', name: c.name };
+      renderStyleManagerLists();
+    });
+    return li;
+  }));
+  // 颜色映射：5 色 × 样式下拉（任务级，存顶层 color_styles）
+  const mapWrap = document.getElementById('style-manager-color-map');
+  const styleNames = (DATA.styles || []).map((s) => s.name);
+  mapWrap.replaceChildren(...COLOR_PALETTE.map((c) => {
+    const row = assEl('label', { class: 'style-manager-color-row' });
+    const dot = assEl('span', { class: 'style-manager-color-dot' });
+    dot.style.background = c.value;
+    row.append(dot, assEl('span', {}, c.label));
+    const sel = assEl('select');
+    sel.append(assEl('option', { value: '' }, tr('无绑定')));
+    styleNames.forEach((n) => sel.append(assEl('option', { value: n }, n)));
+    sel.value = (DATA.color_styles || {})[c.name] || '';
+    sel.addEventListener('change', () => {
+      pushUndo('颜色样式映射');
+      if (!DATA.color_styles) DATA.color_styles = {};
+      if (sel.value) DATA.color_styles[c.name] = sel.value;
+      else delete DATA.color_styles[c.name];
+      if (!Object.keys(DATA.color_styles).length) DATA.color_styles = null;
+      renderStyleManagerLists();
+      update();
+    });
+    row.append(sel);
+    return row;
+  }));
+}
+
+async function loadStyleCatalogs() {
+  const info = document.getElementById('style-manager-catalog-info');
+  const list = document.getElementById('style-manager-catalog-list');
+  if (!SERVER_CONFIG?.styleCatalogsUrl) {
+    info.textContent = tr('仅服务器编辑器支持读取本机 Aegisub 目录');
+    list.replaceChildren();
+    return;
+  }
+  try {
+    const response = await fetch(new URL(SERVER_CONFIG.styleCatalogsUrl, window.location.href));
+    const data = await response.json();
+    if (!data.ok) { info.textContent = data.error || tr('读取失败'); return; }
+    if (!data.exists) {
+      info.textContent = `${tr('目录不存在')}：${data.dir}`;
+      styleCatalogs = [];
+    } else {
+      info.textContent = data.dir;
+      styleCatalogs = data.catalogs || [];
+    }
+    renderStyleManagerLists();
+  } catch (error) {
+    info.textContent = `${tr('读取失败')}：${error.message}`;
+  }
+}
+
+function openStyleManager() {
+  styleManagerModal.classList.add('show');
+  renderStyleManagerLists();
+  loadStyleCatalogs();
+}
+
+// 同名冲突三选一（决策 43⑤：覆盖/跳过/改名）。resolve({choice, name})
+function askStyleConflict(styleName) {
+  return new Promise((resolve) => {
+    const desc = document.getElementById('style-conflict-desc');
+    const renameRow = document.getElementById('style-conflict-rename-row');
+    const renameInput = document.getElementById('style-conflict-rename-input');
+    desc.textContent = tr(`样式「${styleName}」已存在，如何处理？`);
+    renameRow.style.display = 'none';
+    renameInput.value = '';
+    styleConflictModal.classList.add('show');
+    const done = (choice, name = '') => {
+      styleConflictModal.classList.remove('show');
+      document.getElementById('style-conflict-skip').onclick = null;
+      document.getElementById('style-conflict-rename-btn').onclick = null;
+      document.getElementById('style-conflict-overwrite').onclick = null;
+      resolve({ choice, name });
+    };
+    document.getElementById('style-conflict-skip').onclick = () => done('skip');
+    document.getElementById('style-conflict-rename-btn').onclick = () => {
+      if (renameRow.style.display === 'none') {
+        renameRow.style.display = '';
+        renameInput.focus();
+        return;
+      }
+      const name = renameInput.value.trim();
+      if (!name || styleByName(name)) { flashHint(tr('名称无效或已存在')); return; }
+      done('rename', name);
+    };
+    document.getElementById('style-conflict-overwrite').onclick = () => done('overwrite');
+  });
+}
+
+async function mergeStylesIntoProject(styles, skipped) {
+  if (!Array.isArray(styles) || !styles.length) {
+    flashHint(tr('没有解析到任何样式'));
+    return;
+  }
+  let undoPushed = false;
+  let changed = false;
+  for (const incoming of styles) {
+    const normalized = window.AsrEditorUtils.normalizeAssStyle(incoming);
+    const existing = styleByName(normalized.name);
+    if (!existing) {
+      if (!undoPushed) { pushUndo('导入样式'); undoPushed = true; }
+      DATA.styles.push(normalized);
+      changed = true;
+      continue;
+    }
+    if (JSON.stringify(existing) === JSON.stringify(normalized)) continue;
+    const { choice, name } = await askStyleConflict(normalized.name);
+    if (choice === 'overwrite') {
+      if (!undoPushed) { pushUndo('导入样式'); undoPushed = true; }
+      DATA.styles[DATA.styles.indexOf(existing)] = normalized;
+      changed = true;
+    } else if (choice === 'rename') {
+      if (!undoPushed) { pushUndo('导入样式'); undoPushed = true; }
+      normalized.name = name;
+      DATA.styles.push(normalized);
+      changed = true;
+    }
+  }
+  if (changed) {
+    renderAll();
+    renderStyleManagerLists();
+    update();
+  }
+  flashHint(skipped ? tr(`导入完成（跳过 ${skipped} 条损坏行）`) : tr('导入完成'));
+}
+
+async function importSelectedCatalog() {
+  const name = styleManagerSelected.kind === 'catalog' ? styleManagerSelected.name : '';
+  if (!name) { flashHint(tr('先在右侧选择一个目录')); return; }
+  try {
+    const url = new URL(SERVER_CONFIG.styleCatalogUrl, window.location.href);
+    url.searchParams.set('name', name);
+    const response = await fetch(url);
+    const data = await response.json();
+    if (!data.ok) { flashHint(data.error || tr('读取失败')); return; }
+    await mergeStylesIntoProject(data.styles, data.skipped);
+  } catch (error) {
+    flashHint(`${tr('读取失败')}：${error.message}`);
+  }
+}
+
+async function importStyleFile(file) {
+  const kind = /\.ass$/i.test(file.name) ? 'ass' : 'sty';
+  try {
+    const text = await file.text();
+    const response = await fetch(new URL(SERVER_CONFIG.stylesParseUrl, window.location.href), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, kind }),
+    });
+    const data = await response.json();
+    if (!data.ok) { flashHint(data.error || tr('解析失败')); return; }
+    await mergeStylesIntoProject(data.styles, data.skipped);
+  } catch (error) {
+    flashHint(`${tr('读取失败')}：${error.message}`);
+  }
+}
+
+function renameStyleReferences(oldName, newName) {
+  if (DATA.color_styles) {
+    for (const [color, name] of Object.entries(DATA.color_styles)) {
+      if (name === oldName) DATA.color_styles[color] = newName;
+    }
+  }
+  DATA.segments.forEach((seg) => {
+    if (seg.style_ref === oldName) seg.style_ref = newName;
+  });
+}
+
+document.getElementById('style-manager-btn')?.addEventListener('click', openStyleManager);
+document.getElementById('style-manager-close')?.addEventListener('click', () => styleManagerModal.classList.remove('show'));
+document.getElementById('style-manager-new')?.addEventListener('click', () => {
+  const name = window.prompt(tr('新样式名称'));
+  if (!name) return;
+  if (styleByName(name)) { flashHint(tr('样式名已存在')); return; }
+  pushUndo('新建样式');
+  DATA.styles.push({ ...window.AsrEditorUtils.ASS_STYLE_DEFAULTS, name });
+  renderStyleManagerLists();
+  renderAll();
+  update();
+  openStyleEditorForStyle(name);
+});
+document.getElementById('style-manager-edit')?.addEventListener('click', () => {
+  const name = styleManagerSelected.kind === 'project' ? styleManagerSelected.name : '';
+  if (!name) { flashHint(tr('先在左侧选择一个样式')); return; }
+  openStyleEditorForStyle(name);
+});
+document.getElementById('style-manager-rename')?.addEventListener('click', () => {
+  const name = styleManagerSelected.kind === 'project' ? styleManagerSelected.name : '';
+  if (!name) { flashHint(tr('先在左侧选择一个样式')); return; }
+  const newName = window.prompt(tr('新名称'), name);
+  if (!newName || newName === name) return;
+  if (styleByName(newName)) { flashHint(tr('样式名已存在')); return; }
+  pushUndo('重命名样式');
+  const style = styleByName(name);
+  style.name = newName;
+  renameStyleReferences(name, newName);
+  renderStyleManagerLists();
+  renderAll();
+  update();
+});
+document.getElementById('style-manager-delete')?.addEventListener('click', () => {
+  const name = styleManagerSelected.kind === 'project' ? styleManagerSelected.name : '';
+  if (!name) { flashHint(tr('先在左侧选择一个样式')); return; }
+  if (name === 'Default') { flashHint(tr('Default 样式不可删除')); return; }
+  if (!window.confirm(tr(`确定删除样式「${name}」？引用它的字幕将回落 Default`))) return;
+  pushUndo('删除样式');
+  DATA.styles = DATA.styles.filter((s) => s.name !== name);
+  renameStyleReferences(name, 'Default');  // 引用修正：显式引用回落 Default
+  if (DATA.color_styles) {
+    for (const [color, bound] of Object.entries(DATA.color_styles)) {
+      if (bound === 'Default') delete DATA.color_styles[color];
+    }
+    if (!Object.keys(DATA.color_styles).length) DATA.color_styles = null;
+  }
+  DATA.segments.forEach((seg) => { if (seg.style_ref === 'Default') delete seg.style_ref; });
+  styleManagerSelected = { kind: '', name: '' };
+  renderStyleManagerLists();
+  renderAll();
+  update();
+});
+document.getElementById('style-manager-set-default')?.addEventListener('click', () => {
+  const name = styleManagerSelected.kind === 'project' ? styleManagerSelected.name : '';
+  if (!name || name === 'Default') { flashHint(name ? tr('它已经是默认样式') : tr('先在左侧选择一个样式')); return; }
+  pushUndo('设为默认样式');
+  // ASS 的默认语义 = 名字为 Default 的兜底样式：交换名字并修正全部引用
+  const other = styleByName('Default');
+  const style = styleByName(name);
+  style.name = 'Default';
+  if (other) other.name = name;
+  renameStyleReferences(name, 'Default');
+  if (other) renameStyleReferences('Default', name);
+  renderStyleManagerLists();
+  renderAll();
+  update();
+});
+document.getElementById('style-manager-import-catalog')?.addEventListener('click', importSelectedCatalog);
+document.getElementById('style-manager-import-file')?.addEventListener('click', () => {
+  document.getElementById('style-manager-file-input').value = '';
+  document.getElementById('style-manager-file-input').click();
+});
+document.getElementById('style-manager-file-input')?.addEventListener('change', (event) => {
+  const file = event.target.files?.[0];
+  if (file) importStyleFile(file);
 });
