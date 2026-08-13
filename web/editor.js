@@ -269,6 +269,22 @@ function mediaPlayres() {
   }
   return window.AsrEditorUtils.DEFAULT_PLAYRES;
 }
+function playerContentRect() {
+  // 视频**内容**绘制矩形（相对舞台原点）：媒体元素自适应宽高，舞台（flex 弹性）
+  // 可能比内容高/宽。字幕定位必须锚定内容矩形而非舞台——否则拖动布局分隔条
+  // 改变舞台大小时，字幕会相对视频内容漂移（决策 43 修复）。
+  const stage = playerStage.getBoundingClientRect();
+  const elRect = player.getBoundingClientRect();
+  if (elRect.width <= 0 || elRect.height <= 0) {
+    return { width: stage.width, height: stage.height, offsetX: 0, offsetY: 0 };
+  }
+  return {
+    width: elRect.width,
+    height: elRect.height,
+    offsetX: elRect.left - stage.left,
+    offsetY: elRect.top - stage.top,
+  };
+}
 function pushLayoutUndo(label, snapshot) {
   if (!snapshot) return;
   editorHistory.push({ kind: 'layout', label: label || '调整工作区', layout: snapshot });
@@ -3588,10 +3604,12 @@ function bindPreviewBoxPointerEvents(el, target) {
 // 字幕盒位置/样式由「段样式 + 行内覆盖」驱动，旧全局预览框（preview.subtitle）废弃。
 // 拖动 = 写段级 overrides.pos（PlayRes 坐标，一手势一撤销）；双击 = 打开样式面板。
 function applyOverlayCssProps(css) {
-  overlayEl.style.left = css.left;
-  overlayEl.style.right = css.right;
-  overlayEl.style.top = css.top;
-  overlayEl.style.bottom = css.bottom;
+  // assOverlayCss 返回内容矩形内的 px；叠加内容矩形相对舞台的偏移（letterbox 修正）
+  const content = playerContentRect();
+  overlayEl.style.left = `${parseFloat(css.left) + content.offsetX}px`;
+  overlayEl.style.top = `${parseFloat(css.top) + content.offsetY}px`;
+  overlayEl.style.right = 'auto';
+  overlayEl.style.bottom = 'auto';
   overlayEl.style.transform = css.transform;
   overlayEl.style.width = 'auto';
   overlayEl.style.height = 'auto';
@@ -3600,7 +3618,7 @@ function currentAssLayout(seg) {
   const style = effectiveStyleOf(seg);
   const overrides = effectiveOverridesOf(seg);
   const alignment = (overrides.alignment ?? style.alignment) || 2;
-  const rect = playerStage.getBoundingClientRect();
+  const rect = playerContentRect();
   const playres = mediaPlayres();
   const css = window.AsrEditorUtils.assOverlayCss(
     overrides.pos || null, alignment, style, rect, playres);
@@ -3609,7 +3627,10 @@ function currentAssLayout(seg) {
 function applyAssOverlayStyle(seg, tMs) {
   const layout = currentAssLayout(seg);
   const span = overlayTextEl;
-  const textCss = window.AsrEditorUtils.assStyleToCss(layout.style, layout.overrides);
+  // 字号/描边/阴影按 显示高度/PlayResY 等比缩放（预览区域缩放时字幕随视频缩放）
+  const scale = layout.rect.height / layout.playres[1];
+  const textCss = window.AsrEditorUtils.scaleAssStyleCss(
+    window.AsrEditorUtils.assStyleToCss(layout.style, layout.overrides), scale);
   span.style.fontFamily = textCss.fontFamily;
   span.style.fontSize = textCss.fontSize;
   span.style.color = textCss.color;
@@ -3665,7 +3686,7 @@ overlayEl.addEventListener('pointermove', (event) => {
   // 3px 阈值：普通点击/误触不写位置（决策 43：拖动 = 有意修改该段 \pos）
   if (!assDrag.started && Math.hypot(dx, dy) < 3) return;
   assDrag.started = true;
-  const rect = playerStage.getBoundingClientRect();
+  const rect = playerContentRect();  // 内容矩形（letterbox 修正，与定位一致）
   const playres = mediaPlayres();
   const next = window.AsrEditorUtils.viewportToPlayres({
     left: assDrag.anchor.left + dx,
@@ -3727,10 +3748,13 @@ document.addEventListener('pointerdown', (event) => {
   });
 }, true);
 
-// 播放器缩放时几何以百分比表达，天然自适应；ResizeObserver 仅在盒子越界后回钳。
+// 播放器缩放时：表情包层回铺百分比几何（天然自适应）；
+// 字幕盒（决策 43）由段样式驱动，update() 按新内容矩形重新定位——
+// 预览区域缩放不得改变字幕相对视频内容的位置。
 if (typeof ResizeObserver === 'function') {
   const previewResizeObserver = new ResizeObserver(() => {
-    applyPreviewGeometryToDom(getPreviewGeometry());
+    applyStickerGeometryToDom(getStickerGeometry());
+    update();
   });
   previewResizeObserver.observe(playerStage);
 }
@@ -7067,13 +7091,17 @@ function updateStylePanelPreview() {
   const textEl = document.getElementById('style-panel-preview-text');
   if (!frame || !textEl || !stylePanelContext) return;
   const state = GEO.normalizeAssStyle(stylePanelState);
-  const css = GEO.assStyleToCss(state, {});
+  const playres = mediaPlayres();
+  // 预览框宽高比跟随 PlayRes（4:3/21:9 视频也所见即所得；内容矩形 = 框本身）
+  frame.style.aspectRatio = `${playres[0]} / ${playres[1]}`;
+  const alignment = Number(stylePanelState.alignment) || 2;
+  const rect = frame.getBoundingClientRect();
+  // 字号/描边/阴影按框高/PlayResY 等比缩放（与视频 overlay 同一套逻辑）
+  const css = GEO.scaleAssStyleCss(GEO.assStyleToCss(state, {}), rect.height / playres[1]);
   for (const [prop, value] of Object.entries(css)) {
     textEl.style[prop] = value;
   }
-  const alignment = Number(stylePanelState.alignment) || 2;
-  const rect = frame.getBoundingClientRect();
-  const layout = GEO.assOverlayCss(stylePanelState.pos || null, alignment, state, rect, mediaPlayres());
+  const layout = GEO.assOverlayCss(stylePanelState.pos || null, alignment, state, rect, playres);
   textEl.style.position = 'absolute';
   textEl.style.left = layout.left;
   textEl.style.right = layout.right;

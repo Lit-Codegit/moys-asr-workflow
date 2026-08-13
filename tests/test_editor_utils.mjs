@@ -1096,21 +1096,37 @@ test('assAnchorPoint derives anchor px from pos or alignment+margins', () => {
   assert.equal(pos.top, 270);
 });
 
-test('assOverlayCss builds pos/alignment/margin positioning with anchor transform', () => {
+test('assOverlayCss anchors to the content rect with px and translate compensation', () => {
   const rect = { width: 640, height: 360 };
   const playres = [1280, 720];
   const style = helpers.normalizeAssStyle({ alignment: 2, margin_v: 40 });
-  // 无 pos、an2：left 50%、bottom 边距、translate(-50%,0)
+  // 无 pos、an2（底中）：锚点 px = 内容底边中央上方 margin_v；底锚 translate -100%
+  // （\an 1/2/3 锚点在文本底边，盒子坐在锚点上方）
   const css = helpers.assOverlayCss(null, 2, style, rect, playres);
-  assert.equal(css.left, '50%');
-  assert.equal(css.bottom, `${40 * 360 / 720}px`);
-  assert.equal(css.transform, 'translate(-50%, 0)');
+  assert.equal(css.left, '320px');
+  assert.equal(css.top, `${360 - 40 * 360 / 720}px`);
+  assert.equal(css.right, 'auto');
+  assert.equal(css.transform, 'translate(-50%, -100%)');
   // 有 pos、an8（上中）：left/top = px、translate(-50%,-100%)
   const posCss = helpers.assOverlayCss([640, 180], 8, style, rect, playres);
   assert.equal(posCss.left, '320px');
   assert.equal(posCss.top, '90px');
-  assert.equal(posCss.transform, 'translate(-50%, -100%)');
-  // 无 pos、an1（左下）：无 transform
+  assert.equal(posCss.transform, 'translate(-50%, 0)');  // an8 = 顶中：锚点在文本顶边
+  // 无 pos、an1（左下）：底锚 y 补偿 -100%，x 无补偿
   const corner = helpers.assOverlayCss(null, 1, style, rect, playres);
-  assert.equal(corner.transform, '');
+  assert.equal(corner.transform, 'translate(0, -100%)');
+});
+
+test('scaleAssStyleCss scales font, stroke and shadow by display height / PlayResY', () => {
+  const css = {
+    fontFamily: '"Arial"',
+    fontSize: '48px',
+    webkitTextStroke: '4px rgba(240,133,58,0.9)',
+    textShadow: '5px 5px 0 rgba(7,8,14,0.43)',
+  };
+  const scaled = helpers.scaleAssStyleCss(css, 0.5);
+  assert.equal(scaled.fontSize, '24px');
+  assert.equal(scaled.webkitTextStroke, '2px rgba(240,133,58,0.9)');
+  assert.equal(scaled.textShadow, '2.5px 2.5px 0 rgba(7,8,14,0.43)');
+  assert.equal(scaled.fontFamily, '"Arial"');
 });

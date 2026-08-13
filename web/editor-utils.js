@@ -1058,6 +1058,22 @@
     return css;
   }
 
+  function scaleAssStyleCss(css, scale) {
+    // ASS 字号/描边/阴影都是 PlayRes 像素：显示时必须按 显示高度/PlayResY 等比缩放，
+    // 否则预览区域缩放时文字大小不变、位置相对视频漂移（决策 43 修复）。
+    const out = { ...css };
+    if (css.fontSize) out.fontSize = `${parseFloat(css.fontSize) * scale}px`;
+    if (css.webkitTextStroke) {
+      out.webkitTextStroke = css.webkitTextStroke.replace(
+        /^([\d.]+)px/, (_, n) => `${parseFloat(n) * scale}px`);
+    }
+    if (css.textShadow) {
+      out.textShadow = css.textShadow.replace(
+        /([\d.]+)px/g, (_, n) => `${parseFloat(n) * scale}px`);
+    }
+    return out;
+  }
+
   function assAnchorPoint(pos, alignment, style, rect, playres) {
     // 字幕锚点（\an 语义下 pos/对齐+边距 决定）在播放器矩形内的 px 坐标。
     // 拖动起始用它反推 \pos，保证「无 pos 的字幕从视觉位置开始拖」不跳变。
@@ -1082,31 +1098,23 @@
   }
 
   function assOverlayCss(pos, alignment, style, rect, playres) {
-    // 字幕 overlay 定位 CSS：pos（PlayRes）或样式对齐+边距；锚点按 \an 用 translate 补偿
+    // 字幕 overlay 定位 CSS：锚点（\\an 语义下的文本落点）恒为 px，\an 居中/右/上
+    // 用 translate 百分比补偿（相对字幕盒自身尺寸）。
+    // rect = 视频**内容**绘制矩形（调用方负责 letterbox 修正），保证预览区域
+    // 缩放时字幕相对视频内容的位置不变（决策 43 修复：不再锚定舞台矩形）。
     const anchor = assAlignmentToAnchor(alignment);
-    const css = { left: 'auto', right: 'auto', top: 'auto', bottom: 'auto', transform: '' };
-    let tx = '0';
-    let ty = '0';
-    if (pos && Number.isFinite(pos[0]) && Number.isFinite(pos[1])) {
-      const vp = playresToViewport(pos, playres, rect);
-      css.left = `${vp.left}px`;
-      css.top = `${vp.top}px`;
-      if (anchor.x === 'center') tx = '-50%';
-      else if (anchor.x === 'right') tx = '-100%';
-      if (anchor.y === 'middle') ty = '-50%';
-      else if (anchor.y === 'top') ty = '-100%';
-    } else {
-      const sx = rect.width / playres[0];
-      const sy = rect.height / playres[1];
-      if (anchor.x === 'left') css.left = `${style.margin_l * sx}px`;
-      else if (anchor.x === 'center') { css.left = '50%'; tx = '-50%'; }
-      else css.right = `${style.margin_r * sx}px`;
-      if (anchor.y === 'top') css.top = `${style.margin_v * sy}px`;
-      else if (anchor.y === 'middle') { css.top = '50%'; ty = '-50%'; }
-      else css.bottom = `${style.margin_v * sy}px`;
-    }
-    css.transform = (tx === '0' && ty === '0') ? '' : `translate(${tx}, ${ty})`;
-    return css;
+    const point = assAnchorPoint(pos, alignment, style, rect, playres);
+    const tx = anchor.x === 'center' ? '-50%' : anchor.x === 'right' ? '-100%' : '0';
+    // \an 语义：1/2/3 = 锚点在文本底边（盒子坐锚点上方，-100%）；
+    // 4/5/6 = 垂直居中（-50%）；7/8/9 = 顶边（0）
+    const ty = anchor.y === 'middle' ? '-50%' : anchor.y === 'bottom' ? '-100%' : '0';
+    return {
+      left: `${point.left}px`,
+      top: `${point.top}px`,
+      right: 'auto',
+      bottom: 'auto',
+      transform: (tx === '0' && ty === '0') ? '' : `translate(${tx}, ${ty})`,
+    };
   }
 
   function playresToViewport(pos, playres, rect) {
@@ -1207,6 +1215,7 @@
     resolveSegmentStyleName,
     assAlignmentToAnchor,
     assStyleToCss,
+    scaleAssStyleCss,
     playresToViewport,
     viewportToPlayres,
     assAnchorPoint,
