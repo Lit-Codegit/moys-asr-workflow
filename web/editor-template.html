@@ -63,6 +63,16 @@ __WAVEFORM_CSS__
   </span>
 
   <span class="right-group">
+    <span class="translate-progress" id="translate-progress" hidden></span>
+    <span class="dropdown" id="translate-dropdown" hidden>
+      <button type="button" id="translate-btn" title="批量翻译字幕（译文写回工程，决策 42）">翻译 ▾</button>
+      <div class="dropdown-menu" id="translate-menu">
+        <div class="dropdown-item" id="translate-missing">只翻空缺（原文改动过的段视为空缺）</div>
+        <div class="dropdown-item" id="translate-all">全部重翻</div>
+        <div class="dropdown-separator"></div>
+        <div class="dropdown-item translate-settings-readonly" id="translate-settings-readonly" title="翻译设置由流水线预设传入，只读；修改请到主 UI 预设/任务设置"></div>
+      </div>
+    </span>
     <button id="download-srt">导出字幕</button>
     <span class="dropdown" id="subtitle-export-dropdown" hidden>
       <button id="subtitle-export-btn" title="导出完整字幕或按颜色分别导出字幕">导出字幕 ▾</button>
@@ -70,8 +80,18 @@ __WAVEFORM_CSS__
         <div class="dropdown-item" id="download-full-srt">导出完整字幕（SRT）</div>
         <div class="dropdown-item" id="download-color-srt">按颜色导出字幕（SRT）</div>
         <div class="dropdown-item" id="download-plain-text">导出纯文本（TXT）</div>
+        <div class="dropdown-separator" id="export-server-separator" hidden></div>
+        <div class="dropdown-item" id="export-server-note" hidden title="服务端导出直接写入工程同目录（主流程自动识别），全量原文/译文固定导出"></div>
       </div>
     </span>
+    <div class="dropdown-menu color-export-popover" id="color-export-popover" hidden>
+      <div class="color-export-title">选择要导出的颜色（全量原文/译文固定导出）</div>
+      <div class="color-export-checks" id="color-export-checks"></div>
+      <div class="color-export-actions">
+        <button type="button" id="color-export-select-all">全选</button>
+        <button type="button" id="color-export-confirm">导出</button>
+      </div>
+    </div>
     <button id="download-json">导出工程</button>
     <span class="dropdown gap-removed-export-dropdown" id="gap-removed-export-dropdown" hidden>
       <button id="gap-removed-export-btn" title="导出应用当前空隙移除结果的字幕、时间线或保留区域计划">导出去空隙版本 ▾</button>
@@ -600,6 +620,10 @@ __WAVEFORM_CSS__
           <span>字/秒 <b id="cue-panel-chars-per-second">0.00</b></span>
         </div>
       </div>
+      <div class="cue-panel-translation-wrap">
+        <textarea id="cue-panel-translation" rows="2" placeholder="译文（空 = 未翻译；批量翻译只翻空缺）…"></textarea>
+        <button type="button" id="cue-panel-translate-one" title="只翻译当前这一条（走服务端翻译 API）">翻译此条</button>
+      </div>
       <div class="cue-panel-sticker-wrap">
         <div class="cue-panel-sticker" id="cue-panel-sticker" title="点击替换；右键删除"></div>
         <button type="button" id="cue-panel-add-sticker">＋ 表情包</button>
@@ -642,6 +666,7 @@ __WAVEFORM_CSS__
       </span>
       <span class="info">显示 <b id="visible-count">0</b> / <b id="total-count">0</b></span>
       <label class="toggle"><input type="checkbox" id="hide-disabled-toggle"> 隐藏禁用</label>
+      <label class="toggle" id="show-translation-toggle-wrap" hidden><input type="checkbox" id="show-translation-toggle"> 显示译文</label>
       <span class="sep"></span>
       <button id="replace-btn">批量替换…</button>
       <span class="sep"></span>

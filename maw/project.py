@@ -137,6 +137,9 @@ def _normalize_copy(project: JsonValue, errors: list[ProjectValidationError]) ->
         errors.append(ProjectValidationError("$", "must be an object"))
         return {"segments": []}
     normalized = copy.deepcopy(project)
+    translation_language = normalized.get("translation_language")
+    if translation_language is not None and not isinstance(translation_language, str):
+        errors.append(ProjectValidationError("$.translation_language", "must be a string"))
     segments = normalized.get("segments")
     if not isinstance(segments, list):
         errors.append(ProjectValidationError("$.segments", "must be an array"))
@@ -179,6 +182,8 @@ def _validate_segment(
             errors.append(ProjectValidationError(f"{path}.start", "must be >= previous segment end"))
     if not isinstance(segment.get("text"), str):
         errors.append(ProjectValidationError(f"{path}.text", "must be a string"))
+    if "translation" in segment and not isinstance(segment["translation"], str):
+        errors.append(ProjectValidationError(f"{path}.translation", "must be a string"))
     if "speaker" in segment and (not isinstance(segment["speaker"], str) or not segment["speaker"].strip()):
         errors.append(ProjectValidationError(f"{path}.speaker", "must be a non-empty string"))
     _validate_items(segment, path, errors)

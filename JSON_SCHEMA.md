@@ -15,6 +15,7 @@
   "media": "...",
   "language": "...",
   "model": "...",
+  "translation_language": "...",
   "sticker_root": "...",
   "waveform": { ... },
   "gap_remove": { ... },
@@ -30,6 +31,7 @@
 | `media` | `string` | 否 | 媒体文件路径（绝对/相对均可）。便携 HTML 会在“打开工程”时用它的文件名匹配同一次选择的媒体；只选工程文件时会提示用户继续选择媒体。浏览器安全限制下不能自行读取该路径或跳转其目录。服务器编辑器可按该路径自动加载 |
 | `language` | `string` | 否 | 语言代码，如 `Chinese`、`English`。仅用于显示 |
 | `model` | `string` | 否 | ASR 模型名，如 `qwen3-asr`。仅用于显示 |
+| `translation_language` | `string` | 否 | 译文语言代码（如 `zh`）。存在且非空 = 本工程有译文轨道（`segment.translation`）。翻译脚本写回译文时设置，编辑器批量翻译时更新 |
 | `sticker_root` | `string` | 否 | 表情包根目录绝对路径。打开工程时会覆盖编辑器内的 `STICKER_ROOT` |
 | `waveform` | `object` | 否 | 可丢弃的紧凑波形缓存。由 `edit.py` 或浏览器自动生成；不影响字幕语义 |
 | `gap_remove` | `object` | 否 | 可逆的空隙移除决定。保留原始媒体/字幕时间，仅描述导出与跳过播放时使用的派生时间轴 |
@@ -201,6 +203,7 @@
   "start": 1234,
   "end": 5678,
   "text": "字幕文本",
+  "translation": "字幕文本的译文",
   "items": [ ... ],
   "speaker": "1",
   "sticker": null,
@@ -216,6 +219,7 @@
 | `start` | `int` | **必填** | 段起始时间，**单位毫秒** |
 | `end` | `int` | **必填** | 段结束时间，**单位毫秒**，要求 `end > start` |
 | `text` | `string` | **必填** | 字幕显示文本。可含 `\n` 表示换行（在编辑器里渲染为 `<br>`） |
+| `translation` | `string` | 否 | 译文文本（kirinuki 流水线魔改扩展，决策 42）。复用本段时间轴，无独立字级时间戳。空字符串/缺失 = 未翻译；编辑器「批量翻译」只翻空缺（原文被编辑后译文视为失效）。导出时生成 `subs_<lang>.srt`（只含有译文的段） |
 | `items` | `array<object>` | 推荐填 | 字级时间戳数组。用于「双击拆分时按字分配时间」。可填 `[]`，此时拆分会按字符比例估算时间点 |
 | `speaker` | `string` | 否 | 说话人标签（非空字符串）。保存供应商返回的 opaque ID（如 Soniox 的 `"1"`/`"2"`），不转换为整数或姓名。仅当该段所有带语音 items 都是同一 speaker 时才写入；缺少该字段的旧工程继续有效 |
 | `sticker` | `object\|null` | 否 | 表情包 head 信息。见第四节 |

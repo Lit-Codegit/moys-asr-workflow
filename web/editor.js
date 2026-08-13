@@ -74,6 +74,7 @@ function readEditorSettings() {
       cueListShowTime: saved.cueListShowTime !== false,
       cueListShowSticker: saved.cueListShowSticker !== false,
       cueListShowCharcount: saved.cueListShowCharcount !== false,
+      cueListShowTranslation: saved.cueListShowTranslation !== false,
       cueListAutoScrollOnClick: saved.cueListAutoScrollOnClick !== false,
       cueEditorShowNavigation: saved.cueEditorShowNavigation === true,
       cueEditorShowTimeActions: saved.cueEditorShowTimeActions === true,
@@ -418,6 +419,19 @@ const cuePanelNext = document.getElementById('cue-panel-next');
 const cuePanelStart = document.getElementById('cue-panel-start');
 const cuePanelDuration = document.getElementById('cue-panel-duration');
 const cuePanelText = document.getElementById('cue-panel-text');
+const cuePanelTranslation = document.getElementById('cue-panel-translation');
+const cuePanelTranslateOne = document.getElementById('cue-panel-translate-one');
+const showTranslationToggle = document.getElementById('show-translation-toggle');
+const showTranslationToggleWrap = document.getElementById('show-translation-toggle-wrap');
+const translateDropdown = document.getElementById('translate-dropdown');
+const translateProgress = document.getElementById('translate-progress');
+const translateSettingsReadonly = document.getElementById('translate-settings-readonly');
+const colorExportPopover = document.getElementById('color-export-popover');
+const colorExportChecks = document.getElementById('color-export-checks');
+const colorExportSelectAll = document.getElementById('color-export-select-all');
+const colorExportConfirm = document.getElementById('color-export-confirm');
+const exportServerSeparator = document.getElementById('export-server-separator');
+const exportServerNote = document.getElementById('export-server-note');
 const cuePanelTotalLength = document.getElementById('cue-panel-total-length');
 const cuePanelCharsPerSecond = document.getElementById('cue-panel-chars-per-second');
 const cuePanelSticker = document.getElementById('cue-panel-sticker');
@@ -538,6 +552,11 @@ function applyCueListDisplaySettings() {
     !EDITOR_SETTINGS.cueListShowSticker || !projectHasStickers,
   );
   container.classList.toggle('hide-cue-charcount', !EDITOR_SETTINGS.cueListShowCharcount);
+  // 译文列（决策 42）：工程没有任何译文时整列自动收起
+  const projectHasTranslation = DATA.segments.some(segment => segment.translation);
+  if (showTranslationToggleWrap) showTranslationToggleWrap.hidden = !projectHasTranslation;
+  if (showTranslationToggle) showTranslationToggle.checked = EDITOR_SETTINGS.cueListShowTranslation;
+  container.classList.toggle('hide-cue-translation', !EDITOR_SETTINGS.cueListShowTranslation);
 }
 
 function bindCueListDisplayToggle(toggle, key) {
@@ -1584,6 +1603,7 @@ function commitCuePanelEdit() {
   const seg = DATA.segments[idx];
   if (!seg) { cuePanelUndoPushed = false; return false; }
   const nextText = cuePanelText.value.replace(/\r\n?/g, '\n');
+  const nextTranslation = (cuePanelTranslation.value || '').replace(/\r\n?/g, '\n');
   const oldStart = seg.start;
   const oldEnd = seg.end;
   const requestedStart = parsePanelTime(cuePanelStart.value, oldStart);
@@ -1604,13 +1624,25 @@ function commitCuePanelEdit() {
     cuePanelUndoPushed = false;
     return false;
   }
-  const changed = nextText !== seg.text || newStart !== oldStart || newEnd !== oldEnd;
+  const textChanged = nextText !== seg.text;
+  const translationChanged = nextTranslation !== (seg.translation || '');
+  const changed = textChanged || translationChanged || newStart !== oldStart || newEnd !== oldEnd;
   if (!changed) {
     cuePanelUndoPushed = false;
     return false;
   }
   ensureCuePanelUndo();
   seg.text = nextText;
+  // 原文改动 → 旧译文失效（决策 42：批量翻译只翻空缺会把失效段当空缺补上）
+  if (textChanged && nextTranslation === (seg.translation || '')) {
+    seg.translation = '';
+    if (cuePanelTranslation.value) {
+      cuePanelTranslation.value = '';
+      flashHint('原文已修改，译文已失效，可重新翻译');
+    }
+  } else {
+    seg.translation = nextTranslation;
+  }
   seg.start = newStart;
   seg.end = Math.max(newStart + 100, newEnd);
   if (seg.end > nextStart) {
@@ -1635,6 +1667,7 @@ function renderCurrentCuePanel() {
     .forEach((element) => { if (element) element.disabled = empty; });
   if (empty) {
     cuePanelText.value = '';
+    cuePanelTranslation.value = '';
     cuePanelStart.value = '';
     cuePanelDuration.value = '';
     cuePanelTotalLength.textContent = '0';
@@ -1644,6 +1677,8 @@ function renderCurrentCuePanel() {
     return;
   }
   if (document.activeElement !== cuePanelText || !cuePanelUndoPushed) cuePanelText.value = seg.text || '';
+  if (document.activeElement !== cuePanelTranslation || !cuePanelUndoPushed) cuePanelTranslation.value = seg.translation || '';
+  cuePanelTranslateOne.disabled = !translateReady();
   cuePanelStart.value = fmtShort(seg.start);
   cuePanelDuration.value = ((seg.end - seg.start) / 1000).toFixed(3);
   const metrics = window.AsrEditorUtils.cueMetrics(seg.text || '', seg.start, seg.end);
@@ -1739,6 +1774,12 @@ cuePanelText?.addEventListener('input', () => {
   const seg = DATA.segments[currentCuePanelIdx];
   seg.text = cuePanelText.value.replace(/\r\n?/g, '\n');
   seg._dirty = true;
+  // 原文改动 → 旧译文失效（决策 42：批量翻译只翻空缺会把失效段当空缺补上）
+  if (seg.translation) {
+    seg.translation = '';
+    if (document.activeElement !== cuePanelTranslation) cuePanelTranslation.value = '';
+    flashHint('原文已修改，译文已失效，可重新翻译');
+  }
   const metrics = window.AsrEditorUtils.cueMetrics(seg.text, seg.start, seg.end);
   cuePanelTotalLength.textContent = String(metrics.totalLength);
   cuePanelCharsPerSecond.textContent = metrics.charsPerSecond.toFixed(2);
@@ -1750,6 +1791,14 @@ cuePanelText?.addEventListener('input', () => {
   waveformEditor?.refreshCueLabel(currentCuePanelIdx);
 });
 cuePanelText?.addEventListener('blur', () => commitCuePanelEdit());
+cuePanelTranslation?.addEventListener('input', () => {
+  if (currentCuePanelIdx < 0) return;
+  ensureCuePanelUndo();
+  const seg = DATA.segments[currentCuePanelIdx];
+  seg.translation = cuePanelTranslation.value.replace(/\r\n?/g, '\n');
+  seg._dirty = true;
+});
+cuePanelTranslation?.addEventListener('blur', () => commitCuePanelEdit());
 cuePanelStart?.addEventListener('change', () => commitCuePanelEdit());
 cuePanelDuration?.addEventListener('change', () => commitCuePanelEdit());
 cuePanelAddSticker?.addEventListener('click', () => {
@@ -1852,6 +1901,12 @@ function buildCueEl(seg, idx) {
   const textEl = document.createElement('span');
   textEl.className = 'text';
   setTextHtml(textEl, seg.text, searchEl.value);
+  if (EDITOR_SETTINGS.cueListShowTranslation && seg.translation) {
+    const translationEl = document.createElement('span');
+    translationEl.className = 'translation';
+    setTextHtml(translationEl, seg.translation, searchEl.value);
+    textEl.appendChild(translationEl);
+  }
 
   const cntEl = document.createElement('span');
   cntEl.className = 'charcount';
@@ -2049,6 +2104,11 @@ function finishEdit(save) {
       DATA.segments[idx].text = newText;
       DATA.segments[idx]._dirty = true;
       el.classList.add('dirty');
+      // 原文改动 → 旧译文失效（决策 42）
+      if (DATA.segments[idx].translation) {
+        DATA.segments[idx].translation = '';
+        flashHint('原文已修改，译文已失效，可重新翻译');
+      }
     }
   }
   setTextHtml(textEl, DATA.segments[idx].text, searchEl.value);
@@ -4309,6 +4369,177 @@ async function downloadFile(content, filename, mime, accept) {
   return true;
 }
 
+// === 翻译（决策 42：serve.py 后台翻译任务 + 译文写回 mosp） ===
+
+const LS_SERVER_EXPORT_COLORS = 'maw.serverExportColors';
+
+let translateJobId = null;
+let translateJobSince = 0;
+let translatePollTimer = null;
+
+function translateReady() {
+  return !!(SERVER_CONFIG?.translateUrl && SERVER_CONFIG.translateSettings?.configured);
+}
+
+function translateBusy() {
+  return translateJobId !== null;
+}
+
+function showTranslateProgress(visible, done, total) {
+  if (!translateProgress) return;
+  translateProgress.hidden = !visible;
+  if (visible) translateProgress.textContent = `翻译中 ${done}/${total}…`;
+}
+
+function configureTranslateUi() {
+  if (translateDropdown) translateDropdown.hidden = !(SERVER_CONFIG?.translateUrl);
+  if (translateSettingsReadonly) {
+    const settings = SERVER_CONFIG?.translateSettings;
+    if (!settings) return;
+    translateSettingsReadonly.textContent = settings.configured
+      ? `设置：目标 ${settings.target || 'zh'}${settings.model ? ` · 模型 ${settings.model}` : ''}（只读，改设置请到主 UI 预设）`
+      : '未配置翻译 API Key（请到主 UI 预设或环境变量配置）';
+    translateSettingsReadonly.classList.toggle('translate-unconfigured', !settings.configured);
+  }
+}
+
+async function startServerTranslate(scope, indices) {
+  if (!SERVER_CONFIG?.translateUrl) { flashHint('仅服务器编辑器支持批量翻译'); return; }
+  if (translateBusy()) { flashHint('已有翻译任务进行中，请等待完成'); return; }
+  if (!translateReady()) { flashHint('未配置翻译 API Key，无法翻译'); return; }
+  if (editingState) finishEdit(true);
+  // 先保存，确保服务端翻译基线 = 浏览器当前内容
+  if (serverProjectSavingEnabled()) await saveProjectToServer({ silent: true });
+  let data;
+  try {
+    const response = await fetch(SERVER_CONFIG.translateUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(scope === 'indices' ? { scope, indices } : { scope }),
+    });
+    data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || `服务器返回 ${response.status}`);
+  } catch (error) {
+    flashHint(`翻译启动失败：${error?.message || error}`);
+    return;
+  }
+  translateJobId = data.jobId;
+  translateJobSince = 0;
+  showTranslateProgress(true, 0, data.total);
+  update();
+  pollTranslateStatus();
+}
+
+function pollTranslateStatus() {
+  if (translateJobId === null) return;
+  const url = new URL(
+    `${SERVER_CONFIG.translateStatusUrl}${translateJobId}?since=${translateJobSince}`,
+    window.location.href,
+  );
+  fetch(url).then((response) => response.json().catch(() => ({}))).then((data) => {
+    if (!data.ok) { scheduleTranslatePoll(); return; }
+    translateJobSince += (data.segments || []).length;
+    let applied = false;
+    for (const item of data.segments || []) {
+      const seg = DATA.segments[item.index];
+      if (seg) { seg.translation = item.translation; applied = true; }
+    }
+    if (applied) renderAll();
+    if (data.error) {
+      flashHint(`翻译失败：${data.error}`);
+      finishTranslateUi();
+      return;
+    }
+    if (data.done) {
+      flashHint(`翻译完成（${data.translated} 条）`);
+      finishTranslateUi();
+      return;
+    }
+    showTranslateProgress(true, data.translated, data.total);
+    scheduleTranslatePoll();
+  }).catch(() => scheduleTranslatePoll());
+}
+
+function scheduleTranslatePoll() {
+  translatePollTimer = setTimeout(pollTranslateStatus, 1500);
+}
+
+function finishTranslateUi() {
+  translateJobId = null;
+  translateJobSince = 0;
+  if (translatePollTimer !== null) { clearTimeout(translatePollTimer); translatePollTimer = null; }
+  showTranslateProgress(false, 0, 0);
+  renderAll();
+}
+
+// === 服务端导出（决策 42：写工程同目录，主流程轮询识别） ===
+
+function rememberedExportColors() {
+  try {
+    const value = JSON.parse(localStorage.getItem(LS_SERVER_EXPORT_COLORS) || 'null');
+    if (Array.isArray(value)) return value;
+  } catch (_) { /* 忽略坏值 */ }
+  return null; // null = 全部颜色
+}
+
+async function serverExportSrt(colors) {
+  if (!SERVER_CONFIG?.exportSrtUrl) { flashHint('仅服务器编辑器支持导出到项目目录'); return; }
+  if (editingState) finishEdit(true);
+  if (serverProjectSavingEnabled()) await saveProjectToServer({ silent: true });
+  let data;
+  try {
+    const response = await fetch(SERVER_CONFIG.exportSrtUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ colors }),
+    });
+    data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || `服务器返回 ${response.status}`);
+  } catch (error) {
+    flashHint(`导出失败：${error?.message || error}`);
+    return;
+  }
+  localStorage.setItem(LS_SERVER_EXPORT_COLORS, JSON.stringify(colors));
+  flashHint(`已导出 ${data.files.length} 个文件到 ${data.dir}`);
+}
+
+function openColorExportPopover() {
+  const colors = usedSubtitleColors();
+  if (!colors.length) { flashHint('没有可导出的彩色字幕'); return; }
+  const selected = rememberedExportColors();
+  colorExportChecks.replaceChildren();
+  for (const color of colors) {
+    const label = document.createElement('label');
+    label.className = 'color-export-check';
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.dataset.color = color.name;
+    box.checked = selected === null || selected.includes(color.name);
+    label.append(box, document.createTextNode(` ${color.label || color.name}`));
+    colorExportChecks.appendChild(label);
+  }
+  colorExportPopover.hidden = false;
+}
+
+function closeColorExportPopover() {
+  colorExportPopover.hidden = true;
+}
+
+function confirmColorExport() {
+  const checked = [...colorExportChecks.querySelectorAll('input[type="checkbox"]:checked')]
+    .map((box) => box.dataset.color);
+  closeColorExportPopover();
+  void serverExportSrt(checked);
+}
+
+function configureServerExportUi() {
+  if (exportServerSeparator) exportServerSeparator.hidden = !hasServer;
+  if (exportServerNote) {
+    exportServerNote.hidden = !hasServer;
+    if (hasServer) exportServerNote.textContent = '服务端导出：写入工程同目录，主流程自动识别';
+  }
+}
+
 // === 标题区：媒体名点击复制 / 工程文件名点击复制 ===
 function copyText(text, hint) {
   navigator.clipboard.writeText(text).then(
@@ -4887,12 +5118,42 @@ document.getElementById('download-srt').addEventListener('click', async () => {
   });
 });
 document.getElementById('download-full-srt').addEventListener('click', async () => {
+  // 服务器模式：服务端导出写工程同目录（决策 42）；便携模式保持浏览器下载
+  if (hasServer) { await serverExportSrt(rememberedExportColors()); return; }
   if (editingState) finishEdit(true);
   await downloadFile(buildSrt(), `${FILENAME_BASE}.srt`, 'text/plain', {
     desc: '完整 SRT 字幕文件', types: { 'text/plain': ['.srt'] }
   });
 });
-document.getElementById('download-color-srt').addEventListener('click', () => downloadColorSrts(false));
+document.getElementById('download-color-srt').addEventListener('click', () => {
+  if (hasServer) { openColorExportPopover(); return; }
+  downloadColorSrts(false);
+});
+
+// === 翻译与导出面板绑定（决策 42） ===
+
+document.getElementById('translate-missing')?.addEventListener('click', () => startServerTranslate('missing'));
+document.getElementById('translate-all')?.addEventListener('click', () => startServerTranslate('all'));
+cuePanelTranslateOne?.addEventListener('click', () => {
+  if (currentCuePanelIdx < 0) { flashHint('先选择一条字幕'); return; }
+  startServerTranslate('indices', [currentCuePanelIdx]);
+});
+showTranslationToggle?.addEventListener('change', () => {
+  updateEditorSettings({ cueListShowTranslation: showTranslationToggle.checked });
+  applyCueListDisplaySettings();
+  renderAll();
+});
+colorExportSelectAll?.addEventListener('click', () => {
+  for (const box of colorExportChecks.querySelectorAll('input[type="checkbox"]')) box.checked = true;
+});
+colorExportConfirm?.addEventListener('click', confirmColorExport);
+document.addEventListener('click', (event) => {
+  if (colorExportPopover && !colorExportPopover.hidden
+      && !colorExportPopover.contains(event.target)
+      && !event.target.closest('#subtitle-export-menu')) {
+    closeColorExportPopover();
+  }
+});
 document.getElementById('download-plain-text').addEventListener('click', async () => {
   if (editingState) finishEdit(true);
   await downloadFile(window.AsrEditorUtils.buildPlainTextPayload(DATA.segments), `${FILENAME_BASE}.txt`, 'text/plain', {
@@ -6454,6 +6715,8 @@ const repairedTimingCount = window.AsrEditorUtils.normalizeSegmentTimings(DATA.s
 cleanPunctuation();
 configureServerSaveControls();
 configureServerAutoSave();
+configureTranslateUi();
+configureServerExportUi();
 configureRecentProjects();
 configureServerProjectSettings();
 initWaveformEditor();

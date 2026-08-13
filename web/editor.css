@@ -1137,6 +1137,47 @@
   .cues-container.hide-cue-time .cue .time,
   .cues-container.hide-cue-sticker .cue .sticker-slot,
   .cues-container.hide-cue-charcount .cue .charcount { display: none; }
+  /* 译文行（决策 42）：原文下方的次级行，可随显示开关整体隐藏 */
+  .cues-container.hide-cue-translation .cue .text .translation { display: none; }
+  .cue .text .translation {
+    display: block; margin-top: 2px; font-size: 0.88em;
+    color: var(--text-secondary); white-space: pre-wrap;
+    border-top: 1px dashed var(--border, transparent); padding-top: 2px;
+  }
+  .cue .text .translation mark { background: var(--amber); color: var(--mark-fg); padding: 0 2px; border-radius: 2px; }
+  /* 当前字幕面板：译文编辑区（决策 42） */
+  .cue-panel-translation-wrap {
+    display: flex; gap: 8px; align-items: stretch;
+    padding: 0 4px 4px 4px;
+  }
+  .cue-panel-translation-wrap textarea {
+    flex: 1; resize: vertical; min-height: 32px;
+    font-size: 13px; background: var(--bg-input); color: var(--text);
+    border: 1px solid var(--border, #444); border-radius: 4px; padding: 4px 6px;
+  }
+  .cue-panel-translation-wrap button {
+    white-space: nowrap; align-self: center;
+  }
+  /* 工具栏：翻译进度与批量翻译菜单 */
+  .translate-progress {
+    font-size: 12px; color: var(--amber); white-space: nowrap;
+    padding: 0 6px; align-self: center;
+  }
+  .translate-settings-readonly {
+    font-size: 12px; color: var(--text-secondary); cursor: default !important;
+    white-space: normal; max-width: 260px;
+  }
+  .translate-settings-readonly.translate-unconfigured { color: var(--danger, #e74c3c); }
+  /* 服务端导出：颜色勾选弹层 */
+  .color-export-popover {
+    position: fixed; z-index: 1200; min-width: 200px;
+    background: var(--bg-panel, #222); border: 1px solid var(--border, #444);
+    border-radius: 6px; padding: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  }
+  .color-export-title { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+  .color-export-checks { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+  .color-export-check { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+  .color-export-actions { display: flex; gap: 8px; justify-content: flex-end; }
   .cue .text[contenteditable] {
     outline: 1px dashed var(--amber); padding: 2px 4px;
     background: var(--bg-input); min-width: 50%; white-space: pre-wrap;

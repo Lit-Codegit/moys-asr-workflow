@@ -57,13 +57,16 @@ class LocalEditorServerTests(unittest.TestCase):
             self.project_path, None, str(self.stickers), no_waveform=True, peaks_per_second=100,
         )
         settings = server_editor.remember_project(server_editor.ServerSettings(), self.project_path)
-        page = server_editor.build_server_page(project, settings).decode("utf-8")
+        with server_editor.EditorServer(("127.0.0.1", 0), project) as server:
+            page = server_editor.build_server_page(project, settings, server).decode("utf-8")
         self.assertIn('src="/media"', page)
         self.assertIn('let STICKER_URL_PREFIX = "/stickers";', page)
         self.assertIn('const SERVER_CONFIG = {"saveUrl": "/api/project", "canSave": true, ', page)
         self.assertIn('"autoLoadedMediaName": "clip.mp3", "recentProjectsUrl": "/api/recent-projects/open", ', page)
         self.assertIn('"attachUrl": "/api/project/attach", "settingsUrl": "/api/settings", ', page)
-        self.assertIn('"settingsUrl": "/api/settings", "recentProjects": [{"path": "', page)
+        self.assertIn('"translateUrl": "/api/translate", "translateStatusUrl": "/api/translate/", "exportSrtUrl": "/api/export-srt", ', page)
+        self.assertIn('"translateSettings": {"target": "zh", "model": "", "baseUrl": "", "configured": ', page)
+        self.assertIn('"recentProjects": [{"path": "', page)
         self.assertIn('"name": "clip.json"}], "autoOpenLastProject": true, "savedWorkspaces": {}, ', page)
         self.assertIn('"presetWorkspaces": {}, ', page)
         self.assertIn('"activeWorkspaceName": ""};', page)
@@ -247,7 +250,7 @@ class LocalEditorServerTests(unittest.TestCase):
             self.assertEqual(server.settings.active_workspace_name, "剪辑工作区")
             self.assertEqual(server_editor.read_server_settings(settings_path).saved_workspaces["剪辑工作区"], workspace)
 
-            page = server_editor.build_server_page(server.project, server.settings).decode("utf-8")
+            page = server_editor.build_server_page(server.project, server.settings, server).decode("utf-8")
             self.assertIn('"workspace": {"schema": 1, "preset": "custom"', page)
             self.assertIn('"savedWorkspaces": {"剪辑工作区": {"schema": 1', page)
 

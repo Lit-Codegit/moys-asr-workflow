@@ -22,7 +22,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import NamedTuple
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +30,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import edit  # noqa: E402
+import export_srt  # noqa: E402
+import translate_subtitle_api as translate_api  # noqa: E402
 from maw.gui_config import DEFAULT_ENV_PATH, load_env  # noqa: E402
 from maw.project import ProjectValidationFailed, normalize_project, repair_segment_durations  # noqa: E402
 from maw.media import MEDIA_EXTENSIONS, MediaConversionError, MediaResolutionError, MediaStatus, convert_media_for_browser, resolve_project_media  # noqa: E402
@@ -85,6 +87,18 @@ class RecentProjectError(ValueError):
 
 class AttachProjectError(ValueError):
     """A browser-opened project could not be bound to its on-disk file."""
+
+
+class TranslateBusyError(ValueError):
+    """A translate job is already running."""
+
+
+class TranslateConfigError(ValueError):
+    """Translation is requested but not configured (missing API key / file binding)."""
+
+
+class TranslateNothingError(ValueError):
+    """Nothing to translate under the requested scope."""
 
 
 def default_settings_path() -> Path:
@@ -289,7 +303,8 @@ def load_blank_project(stickers_dir: str | None) -> ServerProject:
     )
 
 
-def build_server_page(project: ServerProject, settings: ServerSettings | None = None) -> bytes:
+def build_server_page(project: ServerProject, settings: ServerSettings | None,
+        server: EditorServer) -> bytes:
     """Render with current web/ assets on every page request to prevent UI drift."""
     settings = settings or ServerSettings()
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -335,6 +350,15 @@ def build_server_page(project: ServerProject, settings: ServerSettings | None = 
             "recentProjectsUrl": "/api/recent-projects/open",
             "attachUrl": "/api/project/attach",
             "settingsUrl": "/api/settings",
+            "translateUrl": "/api/translate",
+            "translateStatusUrl": "/api/translate/",
+            "exportSrtUrl": "/api/export-srt",
+            "translateSettings": {
+                "target": server.translate_config["target"],
+                "model": server.translate_config["model"],
+                "baseUrl": server.translate_config["base_url"],
+                "configured": server.translate_ready(),
+            },
             "recentProjects": [item.to_json() for item in settings.recent_projects],
             "autoOpenLastProject": settings.auto_open_last_project,
             "savedWorkspaces": settings.saved_workspaces,
@@ -365,6 +389,9 @@ class EditorServer(ThreadingHTTPServer):
         stickers_dir: str | None = None,
         no_waveform: bool = False,
         peaks_per_second: int = edit.DEFAULT_PEAKS_PER_SECOND,
+        translate_target: str = "zh",
+        translate_model: str = "",
+        translate_base_url: str = "",
     ):
         self.project = project
         self.settings = settings or ServerSettings()
@@ -372,8 +399,16 @@ class EditorServer(ThreadingHTTPServer):
         self.stickers_dir = stickers_dir
         self.no_waveform = no_waveform
         self.peaks_per_second = peaks_per_second
+        self.translate_config = {
+            "target": translate_target or "zh",
+            "model": translate_model,
+            "base_url": translate_base_url,
+        }
         self.save_lock = threading.Lock()
         self.settings_lock = threading.Lock()
+        self.translate_lock = threading.Lock()
+        self.translate_job: dict | None = None
+        self._translate_job_seq = 0
         super().__init__(address, EditorRequestHandler)
 
     def persist_settings(self) -> None:
@@ -530,6 +565,129 @@ class EditorServer(ThreadingHTTPServer):
             self.remember_project(target)
         return target, backup
 
+    # —— 翻译（决策 42：译文写回 mosp；设置由启动参数注入） ——
+
+    def translate_ready(self) -> bool:
+        """翻译是否可用（API key 是否配置）。"""
+        try:
+            self.resolve_translate_config()
+            return True
+        except TranslateConfigError:
+            return False
+
+    def resolve_translate_config(self) -> dict:
+        try:
+            return translate_api.resolve_config(
+                base_url=self.translate_config["base_url"],
+                model=self.translate_config["model"],
+                target=self.translate_config["target"])
+        except RuntimeError as error:
+            raise TranslateConfigError(str(error)) from error
+
+    def start_translate(self, scope: str, indices: list[int] | None) -> dict:
+        """启动后台翻译任务（同时只允许一个）。返回 {jobId, total}。"""
+        with self.translate_lock:
+            if self.translate_job is not None and not self.translate_job.get("done"):
+                raise TranslateBusyError("已有翻译任务进行中，请等待完成")
+            if not self.project.json_path:
+                raise TranslateConfigError("工程未绑定文件，无法写回译文")
+            config = self.resolve_translate_config()
+            segments = self.project.data.get("segments", [])
+            if scope == "indices":
+                chosen = sorted({i for i in (indices or []) if 0 <= i < len(segments)})
+            else:
+                chosen = [
+                    i for i, s in enumerate(segments)
+                    if isinstance(s, dict) and s.get("text", "").strip()
+                    and (scope == "all" or not s.get("translation", "").strip())
+                ]
+            if not chosen:
+                raise TranslateNothingError("没有需要翻译的字幕段")
+            self._translate_job_seq += 1
+            job_id = self._translate_job_seq
+            self.translate_job = {
+                "id": job_id, "done": False, "total": len(chosen),
+                "translated": 0, "error": "", "segments": [], "config": config,
+            }
+        threading.Thread(target=self._run_translate_job,
+                         args=(job_id, chosen), daemon=True).start()
+        return {"jobId": job_id, "total": len(chosen)}
+
+    def _run_translate_job(self, job_id: int, chosen: list[int]) -> None:
+        job = self.translate_job
+        if job is None or job["id"] != job_id:
+            return
+        segments = self.project.data.get("segments", [])
+        entries = []
+        for i in chosen:
+            s = segments[i]
+            entries.append({"start": int(s["start"]), "end": int(s["end"]),
+                            "text": s["text"].strip(),
+                            "translation": s.get("translation", ""),
+                            "index": i})
+        try:
+            config = dict(job["config"])
+            # 把目标语言写进提示词（comfy 同款做法：语言名直接进 prompt）
+            config["system_prompt"] = config["system_prompt"].replace(
+                "given subtitles", f"given subtitles into {config['target']}")
+            translate_api.translate_entries(
+                config, entries, on_batch=self._apply_translation_batch)
+        except Exception as error:  # noqa: BLE001 翻译失败不进崩溃路径，落 job.error
+            with self.translate_lock:
+                if job.get("done") is False:
+                    job["error"] = str(error)
+            print(f"[translate] 任务 {job_id} 失败: {error}", file=sys.stderr)
+            return
+        with self.translate_lock:
+            job["done"] = True
+        print(f"[translate] 任务 {job_id} 完成（{job['total']} 条）")
+
+    def _apply_translation_batch(self, batch_out: list[dict],
+                                 done: int, total: int) -> None:
+        """每批翻译完成后：更新内存工程 + 增量写回 mosp（与浏览器保存互斥）。"""
+        job = self.translate_job
+        if job is None or not self.project.json_path:
+            return
+        with self.save_lock:
+            with self.translate_lock:
+                job["translated"] = done
+                job["total"] = total
+                job["segments"].extend(
+                    {"index": e["index"], "translation": e["text"]}
+                    for e in batch_out if "index" in e)
+                data = self.project.data
+                for e in batch_out:
+                    if "index" not in e:
+                        continue
+                    data["segments"][e["index"]]["translation"] = e["text"]
+                data["translation_language"] = job["config"]["target"]
+                write_project_json(self.project.json_path, data)
+
+    def translate_status(self, job_id: int, since: int = 0) -> dict | None:
+        with self.translate_lock:
+            job = self.translate_job
+            if job is None or job["id"] != job_id:
+                return None
+            return {
+                "done": job["done"],
+                "translated": job["translated"],
+                "total": job["total"],
+                "error": job["error"],
+                "segments": job["segments"][since:],
+            }
+
+    # —— 导出 SRT（决策 42：写工程同目录，与 mosp_to_srt.py 共用 export_srt） ——
+
+    def export_srt_files(self, colors: list[str] | None) -> list[Path]:
+        if not self.project.json_path:
+            raise SaveProjectError("工程未绑定文件，无法导出 SRT")
+        with self.save_lock:
+            project_data = self.project.data
+            out_dir = self.project.json_path.parent
+            base_name = self.project.json_path.stem
+        return export_srt.export_srt_set(project_data, out_dir,
+                                         base_name=base_name, colors=colors)
+
 
 def safe_project_filename(directory: Path, filename: str) -> Path:
     candidate = Path(filename)
@@ -584,6 +742,10 @@ class EditorRequestHandler(BaseHTTPRequestHandler):
             self.open_recent_project()
         elif path == "/api/settings":
             self.update_settings()
+        elif path == "/api/translate":
+            self.start_translate()
+        elif path == "/api/export-srt":
+            self.export_srt()
         else:
             self.send_error(HTTPStatus.NOT_FOUND, "未知 API")
 
@@ -617,6 +779,65 @@ class EditorRequestHandler(BaseHTTPRequestHandler):
         if not isinstance(request, dict):
             raise ValueError("请求内容必须是对象")
         return request
+
+    def start_translate(self) -> None:
+        """POST /api/translate {scope: missing|all|indices, indices?: [int]} → 启动后台翻译。"""
+        try:
+            request = self.read_json_request()
+            scope = request.get("scope", "missing")
+            indices = request.get("indices")
+            if scope not in ("missing", "all", "indices"):
+                raise ValueError("scope 必须是 missing / all / indices")
+            if scope == "indices":
+                if (not isinstance(indices, list)
+                        or not all(isinstance(i, int) for i in indices)):
+                    raise ValueError("indices 必须是整数下标列表")
+            elif indices not in (None, []):
+                raise ValueError("只有 scope=indices 才能传 indices")
+            result = self.editor_server.start_translate(
+                scope, indices if scope == "indices" else None)
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError,
+                TranslateBusyError, TranslateConfigError, TranslateNothingError) as error:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(error)})
+            return
+        self.send_json(HTTPStatus.OK, {"ok": True, **result})
+
+    def translate_status(self) -> None:
+        """GET /api/translate/<jobId>?since=N → 任务进度 + 增量译文。"""
+        parts = urlsplit(self.path)
+        try:
+            job_id = int(parts.path.rsplit("/", 1)[-1])
+            since = int(parse_qs(parts.query).get("since", ["0"])[0])
+        except (ValueError, IndexError):
+            self.send_error(HTTPStatus.BAD_REQUEST, "参数不正确")
+            return
+        status = self.editor_server.translate_status(job_id, since=since)
+        if status is None:
+            self.send_error(HTTPStatus.NOT_FOUND, "翻译任务不存在")
+            return
+        self.send_json(HTTPStatus.OK, {"ok": True, **status})
+
+    def export_srt(self) -> None:
+        """POST /api/export-srt {colors?: [名字]|null} → 写工程同目录（决策 42）。"""
+        try:
+            request = self.read_json_request()
+            colors = request.get("colors", None)
+            if colors is not None and (
+                    not isinstance(colors, list)
+                    or not all(isinstance(c, str) and c.strip() for c in colors)):
+                raise ValueError("colors 必须是颜色名列表或省略（null/缺省 = 全部颜色）")
+            files = self.editor_server.export_srt_files(colors)
+            json_path = self.editor_server.project.json_path
+            out_dir = str(json_path.parent) if json_path else ""
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError,
+                SaveProjectError) as error:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(error)})
+            return
+        self.send_json(HTTPStatus.OK, {
+            "ok": True,
+            "files": [str(p) for p in files],
+            "dir": out_dir,
+        })
 
     def open_recent_project(self) -> None:
         try:
@@ -733,7 +954,7 @@ class EditorRequestHandler(BaseHTTPRequestHandler):
     def handle_request(self, *, include_body: bool) -> None:
         path = urlsplit(self.path).path
         if path == "/":
-            page = build_server_page(self.editor_server.project, self.editor_server.settings)
+            page = build_server_page(self.editor_server.project, self.editor_server.settings, self.editor_server)
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(page)))
@@ -741,6 +962,9 @@ class EditorRequestHandler(BaseHTTPRequestHandler):
             self.end_headers()
             if include_body:
                 self.wfile.write(page)
+            return
+        if path.startswith("/api/translate/"):
+            self.translate_status()
             return
         if path == "/media":
             media_path = self.editor_server.project.media_path
@@ -835,6 +1059,12 @@ def main() -> int:
         "--waveform-peaks-per-second", type=int, default=edit.DEFAULT_PEAKS_PER_SECOND,
         help=f"波形峰值密度（默认: {edit.DEFAULT_PEAKS_PER_SECOND}/秒）",
     )
+    parser.add_argument("--translate-target", default="zh",
+                        help="编辑器内翻译的目标语言（决策 42，默认 zh）")
+    parser.add_argument("--translate-model", default="",
+                        help="翻译模型名（默认读 TRANSLATE_MODEL / .env / gpt-4o-mini）")
+    parser.add_argument("--translate-base-url", default="",
+                        help="翻译接口地址（默认读 TRANSLATE_BASE_URL / .env）")
     args = parser.parse_args()
     if args.blank and args.json_path:
         parser.error("--blank 不能与 json_path 同时使用")
@@ -881,6 +1111,9 @@ def main() -> int:
         stickers_dir=args.stickers,
         no_waveform=args.no_waveform,
         peaks_per_second=args.waveform_peaks_per_second,
+        translate_target=args.translate_target,
+        translate_model=args.translate_model,
+        translate_base_url=args.translate_base_url,
     ) as server:
         host, port = server.server_address[:2]
         url = f"http://{host}:{port}/"

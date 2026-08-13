@@ -1,9 +1,14 @@
 # pyright: reportAny=false, reportAttributeAccessIssue=false, reportMissingParameterType=false, reportMissingTypeArgument=false, reportMissingTypeStubs=false, reportReturnType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportUnusedVariable=false, reportImplicitStringConcatenation=false, reportArgumentType=false, reportIndexIssue=false
 
-"""字幕翻译 CLI（决策 26：OpenAI 兼容 API 为主通道）。
+"""字幕翻译 CLI（决策 26：OpenAI 兼容 API 为主通道；决策 42：译文写回 mosp）。
 
 输入 subs.srt 或 .mosp 工程文件 → 按批次送 OpenAI 兼容接口（base_url + api_key +
-model，支持 429/5xx 指数退避重试）→ 输出同时间轴的目标语言 SRT。
+model，支持 429/5xx 指数退避重试）。
+
+- 默认模式：输出同时间轴的目标语言 SRT（历史行为，决策 26）。
+- `--write-mosp`：译文写回 .mosp 的 `segment.translation`，并声明顶层
+  `translation_language`（决策 42；导出 SRT 用 mosp_to_srt.py / serve.py 导出端点）。
+- `--only-empty`（仅 .mosp + --write-mosp 时有意义）：只翻译尚无译文的段。
 
 配置优先级：CLI 参数 > 环境变量（TRANSLATE_API_KEY / TRANSLATE_BASE_URL /
 TRANSLATE_MODEL）> .env（TRANSLATE_* 同键）。
@@ -12,6 +17,7 @@ TRANSLATE_MODEL）> .env（TRANSLATE_* 同键）。
     python translate_subtitle_api.py subs.srt --target zh \
         --api-key sk-xxx --base-url https://api.deepseek.com/v1 --model deepseek-chat
     python translate_subtitle_api.py subs.mosp -o subs_cn.srt --target zh
+    python translate_subtitle_api.py subs/subs.mosp --write-mosp --only-empty --target zh
 """
 
 from __future__ import annotations
@@ -23,6 +29,7 @@ import re
 import sys
 import time
 from pathlib import Path
+from typing import Callable
 
 import requests
 
@@ -38,7 +45,10 @@ _ENV_FILE = Path(__file__).resolve().parent / ".env"
 
 # —— 配置 ——
 
-def load_config(args) -> dict:
+def resolve_config(*, base_url: str = "", model: str = "", api_key: str = "",
+                   target: str = "zh", batch_size: int = 20, max_retries: int = 3,
+                   system_prompt: str = "") -> dict:
+    """按 CLI > 环境变量 > .env 的优先级解析翻译配置（serve.py 也复用此入口）。"""
     env: dict[str, str] = {}
     if _ENV_FILE.exists():
         for line in _ENV_FILE.read_text(encoding="utf-8").splitlines():
@@ -47,23 +57,35 @@ def load_config(args) -> dict:
                 k, v = line.split("=", 1)
                 env[k.strip()] = v.strip()
 
-    def pick(cli: str | None, env_key: str, default: str = "") -> str:
+    def pick(cli: str, env_key: str, default: str = "") -> str:
         return cli or os.getenv(env_key) or env.get(env_key, default)
 
     config = {
-        "base_url": pick(args.base_url, "TRANSLATE_BASE_URL", "https://api.openai.com/v1").rstrip("/"),
-        "model": pick(args.model, "TRANSLATE_MODEL", "gpt-4o-mini"),
-        "api_key": pick(args.api_key, "TRANSLATE_API_KEY"),
-        "target": args.target or "zh",
-        "batch_size": args.batch_size,
-        "max_retries": args.max_retries,
-        "system_prompt": args.system_prompt or DEFAULT_SYSTEM_PROMPT,
+        "base_url": pick(base_url, "TRANSLATE_BASE_URL", "https://api.openai.com/v1").rstrip("/"),
+        "model": pick(model, "TRANSLATE_MODEL", "gpt-4o-mini"),
+        "api_key": pick(api_key, "TRANSLATE_API_KEY"),
+        "target": target or "zh",
+        "batch_size": batch_size,
+        "max_retries": max_retries,
+        "system_prompt": system_prompt or DEFAULT_SYSTEM_PROMPT,
     }
     if not config["api_key"]:
-        print("[错误] 未配置 API Key。请用 --api-key，或设置环境变量 / .env 的 "
-              "TRANSLATE_API_KEY（可申请 OpenAI 或任意兼容服务密钥）", file=sys.stderr)
-        raise SystemExit(1)
+        raise RuntimeError(
+            "未配置翻译 API Key：请用 --api-key，或设置环境变量 / .env 的 "
+            "TRANSLATE_API_KEY（可申请 OpenAI 或任意兼容服务密钥）")
     return config
+
+
+def load_config(args) -> dict:
+    try:
+        return resolve_config(base_url=args.base_url, model=args.model,
+                              api_key=args.api_key, target=args.target,
+                              batch_size=args.batch_size,
+                              max_retries=args.max_retries,
+                              system_prompt=args.system_prompt)
+    except RuntimeError as e:
+        print(f"[错误] {e}", file=sys.stderr)
+        raise SystemExit(1) from e
 
 
 # —— 输入解析 ——
@@ -76,6 +98,23 @@ def parse_subtitles(path: Path) -> list[dict]:
         return [{"start": int(s["start"]), "end": int(s["end"]),
                  "text": s["text"].strip()} for s in segments if s.get("text", "").strip()]
     return parse_srt(path)
+
+
+def parse_mosp(path: Path) -> tuple[dict, list[dict]]:
+    """.mosp → (完整工程 dict, [{start, end, text, translation, index}]）。
+
+    带 index 与已有 translation，供 --write-mosp / --only-empty 回写。
+    """
+    project = json.loads(path.read_text(encoding="utf-8"))
+    entries: list[dict] = []
+    for i, s in enumerate(project.get("segments", [])):
+        if not s.get("text", "").strip():
+            continue
+        entries.append({"start": int(s["start"]), "end": int(s["end"]),
+                        "text": s["text"].strip(),
+                        "translation": s.get("translation", ""),
+                        "index": i})
+    return project, entries
 
 
 def parse_srt(path: Path) -> list[dict]:
@@ -177,8 +216,13 @@ def _call_chat(config: dict, user_text: str) -> str:
 _NUM_RE = re.compile(r"^\s*(\d{1,4})[.、:：)]\s*(.+)$")
 
 
-def translate_entries(config: dict, entries: list[dict]) -> list[dict]:
-    """按批次翻译，返回同序 [{start, end, text(译)}]。"""
+def translate_entries(config: dict, entries: list[dict],
+                      on_batch: Callable[[list[dict], int, int], None] | None = None) -> list[dict]:
+    """按批次翻译，返回同序 [{start, end, text(译), index?}]。
+
+    on_batch(batch_out, done, total)：每批翻译完成后回调（serve.py 增量写回 mosp
+    与编辑器进度显示用；batch_out = 本批 [{start, end, text(译), index?}]）。
+    """
     out: list[dict] = []
     batch_size = config["batch_size"]
     for i in range(0, len(entries), batch_size):
@@ -193,20 +237,46 @@ def translate_entries(config: dict, entries: list[dict]) -> list[dict]:
             m = _NUM_RE.match(line.strip())
             if m:
                 parsed[int(m.group(1))] = m.group(2).strip()
+        batch_out: list[dict] = []
         for j, e in enumerate(batch):
             translated = parsed.get(j + 1, "").strip()
-            out.append({"start": e["start"], "end": e["end"],
-                        "text": translated or e["text"]})  # 缺译兜底原文
+            batch_out.append({"start": e["start"], "end": e["end"],
+                              "text": translated or e["text"],  # 缺译兜底原文
+                              **({"index": e["index"]} if "index" in e else {})})
+        out.extend(batch_out)
+        if on_batch:
+            on_batch(batch_out, min(i + batch_size, len(entries)), len(entries))
         if not parsed:
             print("[translate] [警告] 响应未按编号返回，已用原文兜底（可换更稳定的模型）")
     return out
 
 
+# —— 写回 mosp（决策 42） ——
+
+def write_mosp(project: dict, translated: list[dict], target: str,
+               output_path: Path) -> None:
+    """把译文写回 mosp：segment.translation + 顶层 translation_language。"""
+    for e in translated:
+        if "index" not in e:
+            continue
+        project["segments"][e["index"]]["translation"] = e["text"]
+    project["translation_language"] = target
+    output_path.write_text(
+        json.dumps(project, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="字幕翻译（OpenAI 兼容 API）：srt/.mosp → 目标语言 SRT")
+        description="字幕翻译（OpenAI 兼容 API）：srt/.mosp → 目标语言 SRT；"
+                    "--write-mosp 把译文写回 .mosp（决策 42）")
     parser.add_argument("input", help="输入 subs.srt 或 subs.mosp")
-    parser.add_argument("-o", "--output", help="输出 SRT 路径（默认 <输入>_cn.srt）")
+    parser.add_argument("-o", "--output", help="输出路径（默认 <输入>_cn.srt；"
+                                               "--write-mosp 时默认写回输入文件）")
+    parser.add_argument("--write-mosp", action="store_true",
+                        help="译文写回 .mosp 的 segment.translation + "
+                             "translation_language（导出 SRT 请用 mosp_to_srt.py）")
+    parser.add_argument("--only-empty", action="store_true",
+                        help="只翻译尚无译文的段（仅 .mosp + --write-mosp 时有意义）")
     parser.add_argument("--target", default="zh", help="目标语言（如 zh/en/ja，默认 zh）")
     parser.add_argument("--api-key", default=None, help="API Key（默认读 TRANSLATE_API_KEY / .env）")
     parser.add_argument("--base-url", default=None, help="接口地址（默认 https://api.openai.com/v1）")
@@ -223,15 +293,40 @@ def main():
         raise SystemExit(1)
     config = load_config(args)
 
+    # 把目标语言写进提示词（comfy 同款做法：语言名直接进 prompt）
+    config["system_prompt"] = config["system_prompt"].replace(
+        "given subtitles", f"given subtitles into {config['target']}")
+
+    if args.write_mosp:
+        if input_path.suffix != ".mosp":
+            print("错误: --write-mosp 只支持 .mosp 输入", file=sys.stderr)
+            raise SystemExit(2)
+        project, entries = parse_mosp(input_path)
+        if not entries:
+            print("错误: 没有可翻译的字幕条目", file=sys.stderr)
+            raise SystemExit(2)
+        if args.only_empty:
+            entries = [e for e in entries if not e.get("translation", "").strip()]
+            if not entries:
+                print("没有空缺译文：所有条目均已有译文，无需翻译")
+                return
+        print(f"[准备] 已载入 {len(entries)} 条待译字幕（目标语言: {config['target']}，"
+              f"只翻空缺: {args.only_empty}）")
+
+        t0 = time.perf_counter()
+        translated = translate_entries(config, entries)
+        elapsed = time.perf_counter() - t0
+        write_mosp(project, translated, config["target"],
+                   Path(args.output) if args.output else input_path)
+        print(f"翻译完成: 译文已写回 mosp（{len(translated)} 条，用时 {elapsed:.1f}s，"
+              f"目标语言 {config['target']}）")
+        return
+
     entries = parse_subtitles(input_path)
     if not entries:
         print("错误: 没有可翻译的字幕条目", file=sys.stderr)
         raise SystemExit(2)
     print(f"[准备] 已载入 {len(entries)} 条字幕（目标语言: {config['target']}）")
-
-    # 把目标语言写进提示词（comfy 同款做法：语言名直接进 prompt）
-    config["system_prompt"] = config["system_prompt"].replace(
-        "given subtitles", f"given subtitles into {config['target']}")
 
     t0 = time.perf_counter()
     translated = translate_entries(config, entries)
