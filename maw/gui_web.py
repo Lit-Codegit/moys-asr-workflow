@@ -487,12 +487,11 @@ class LauncherApi:
         launch_url = f"{url}?lang={_gui_lang(payload)}"
 
         owned_server_running = self.server_process is not None and self.server_process.poll() is None
-        if _wait_for_server(url, timeout=0.25) and (not json_text or not owned_server_running):
-            return {"ok": True, "url": launch_url, "serverAlreadyRunning": True}
-        if not json_text:
-            # 无工程：不带 JSON 路径启动，由服务器按「自动打开上次工程」设置恢复最近工程或回落为空白编辑器
-            command = build_serve_command(None, None, port)
-        else:
+        # 先校验请求（工程存在性/关联媒体），再判断端口上是否已有服务器在跑——
+        # 否则端口被其他实例占用时，无效请求会被「已在运行」短路吞掉。
+        json_path: Path | None = None
+        media_path: Path | None = None
+        if json_text:
             json_path = Path(json_text).expanduser()
             if not json_path.exists():
                 return _error_result("jsonPath", "json_not_found", str(json_path))
@@ -503,6 +502,12 @@ class LauncherApi:
                 media_path = None
             if (not media_state.get("hasMedia") or not media_state.get("mediaExists")) and media_path is None:
                 return _error_result("serverMediaPath", "server_media_missing", str(media_state.get("mediaPath") or ""))
+        if _wait_for_server(url, timeout=0.25) and (not json_text or not owned_server_running):
+            return {"ok": True, "url": launch_url, "serverAlreadyRunning": True}
+        if not json_text:
+            # 无工程：不带 JSON 路径启动，由服务器按「自动打开上次工程」设置恢复最近工程或回落为空白编辑器
+            command = build_serve_command(None, None, port)
+        else:
             command = build_serve_command(json_path, media_path, port)
         command.append("--no-open")
         _ = self._stop_owned_server()

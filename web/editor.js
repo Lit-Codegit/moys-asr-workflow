@@ -4647,7 +4647,7 @@ async function serverExportSrt(colors) {
 }
 
 function openColorExportPopover() {
-  const colors = usedSubtitleColors();
+  const colors = usedSubtitleColors();  // 无色段自带 default 伪色（决策 42）
   if (!colors.length) { flashHint('没有可导出的彩色字幕'); return; }
   const selected = rememberedExportColors();
   colorExportChecks.replaceChildren();
@@ -5271,7 +5271,9 @@ document.getElementById('download-full-srt').addEventListener('click', async () 
   });
 });
 document.getElementById('download-color-srt').addEventListener('click', () => {
-  if (hasServer) { openColorExportPopover(); return; }
+  // 服务器编辑器走服务端导出（决策 42/43）；否则客户端逐文件下载。
+  // hasServer 只是 configureServerSaveControls 的局部变量，这里必须直接判断。
+  if (SERVER_CONFIG?.exportSrtUrl) { openColorExportPopover(); return; }
   downloadColorSrts(false);
 });
 

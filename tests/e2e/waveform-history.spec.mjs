@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { join } from 'node:path';
+import { readdirSync, readFileSync } from 'node:fs';
 import {
   cleanupTempDir,
   DURATION_MS,
@@ -11,12 +12,13 @@ import {
 } from './helpers.mjs';
 
 let tempDir;
+let projectPath;
 let server;
 
 test.beforeAll(async () => {
   tempDir = makeTempDir('history');
   const mediaPath = join(tempDir, 'synthetic.wav');
-  const projectPath = join(tempDir, 'project.json');
+  projectPath = join(tempDir, 'project.json');
   generateWav(mediaPath, DURATION_MS / 1000);
   generateProjectJson(projectPath);
   server = await startServer(projectPath, mediaPath, await findFreePort());
@@ -397,53 +399,64 @@ test('context-menu subtitle deletion is immediate and undoable', async ({ page }
   await expect(page.locator('.cue')).toHaveCount(6);
 });
 
-test('colored subtitles export per-color SRT files including the uncolored default group', async ({ page }) => {
-  // 关闭「彩色字幕统一导出」，回到逐个下载的行为（默认勾选时会走目录选择器，自动化无法处理）
-  await page.addInitScript(() => {
-    const key = 'moy.asr.editor.settings.v1';
-    const saved = JSON.parse(localStorage.getItem(key) || '{}');
-    saved.exportColorUnified = false;
-    localStorage.setItem(key, JSON.stringify(saved));
-  });
+test('colored subtitles export per-color files including the uncolored default group', async ({ page }) => {
   await page.goto(server.url);
   await page.evaluate(() => {
     DATA.segments[0].color = { name: 'red', value: '#e74c3c', start: 0, end: 58000 };
     DATA.segments[1].color_ref = { name: 'red', headIdx: 0 };
     DATA.segments[2].color = { name: 'blue', value: '#168cff', start: 100000, end: 108000 };
     renderAll();
+    // headless Chromium 的 File System Access 会弹出真实对话框；删除后走 anchor 下载
     window.showSaveFilePicker = undefined;
   });
 
   await expect(page.locator('#download-srt')).toBeHidden();
   await expect(page.locator('#subtitle-export-dropdown')).toBeVisible();
   await page.locator('#subtitle-export-btn').click();
-  await expect(page.locator('#download-full-srt')).toBeVisible();
   await expect(page.locator('#download-color-srt')).toBeVisible();
-  await expect(page.locator('#download-plain-text')).toBeVisible();
 
-  const downloads = [];
-  page.on('download', (download) => downloads.push(download));
+  // 服务器模式：颜色弹层（红/蓝/无色 default）→ 确认 → 服务端写盘（决策 42/43）
   await page.locator('#download-color-srt').click();
-  await expect.poll(() => downloads.length).toBe(3);
-  expect(downloads.map((download) => download.suggestedFilename())).toEqual([
-    'project_red.srt',
-    'project_blue.srt',
-    'project_default.srt',
-  ]);
-  expect(await downloads[0].createReadStream().then(async (stream) => {
-    const chunks = [];
-    for await (const chunk of stream) chunks.push(chunk);
-    return Buffer.concat(chunks).toString('utf8');
-  })).toContain('Alpha');
+  await expect(page.locator('#color-export-popover')).not.toBeHidden();
+  const boxes = page.locator('#color-export-checks input[type="checkbox"]');
+  await expect(boxes).toHaveCount(3);
+  await page.locator('#color-export-confirm').click();
 
+  // SRT 与 ASS 同批写盘（决策 43），无色段进 default 桶。
+  // 锚定最后写入的 .ass 文件，避免夹在 SRT 与 ASS 两批之间的竞态窗口。
+  await expect.poll(() => readdirSync(tempDir).includes('project_default.ass')).toBe(true);
+  const names = readdirSync(tempDir).sort();
+  for (const expected of [
+    'project.srt', 'project_red.srt', 'project_blue.srt', 'project_default.srt',
+    'project.ass', 'project_red.ass', 'project_blue.ass', 'project_default.ass',
+  ]) {
+    expect(names).toContain(expected);
+  }
+  const defaultSrt = readFileSync(join(tempDir, 'project_default.srt'), 'utf8');
+  expect(defaultSrt).toContain('Delta');      // 无色段
+  expect(defaultSrt).not.toContain('Alpha');  // 红色段不混入
+
+  // 纯文本导出仍走客户端下载
   await page.locator('#subtitle-export-btn').click();
   const textDownload = page.waitForEvent('download');
   await page.locator('#download-plain-text').click();
   expect((await textDownload).suggestedFilename()).toBe('project.txt');
+
+  // 本测试的导出会经服务端保存写盘；恢复干净 fixture，避免污染同文件后续测试
+  generateProjectJson(projectPath);
 });
 
 test('subtitle export stays direct when only disabled subtitles have colors', async ({ page }) => {
   await page.goto(server.url);
+  // 清掉可能被同文件其他测试写进服务端内存工程的颜色，保持顺序无关
+  await page.evaluate(() => {
+    DATA.segments.forEach((segment) => {
+      delete segment.color;
+      delete segment.color_ref;
+      delete segment.disabled;
+    });
+    renderAll();
+  });
   await expect(page.locator('#download-srt')).toBeVisible();
   await expect(page.locator('#subtitle-export-dropdown')).toBeHidden();
 

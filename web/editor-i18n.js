@@ -369,6 +369,23 @@
     '它已经是默认样式': 'It is already the default style',
     '导入完成（跳过损坏行': 'Import complete (skipped damaged lines: ',
     '已导入样式目录': 'Imported style catalog',
+    // === 决策 42 翻译面板（此前缺失，e2e i18n 全覆盖扫描暴露）===
+    '翻译 ▾': 'Translate ▾',
+    '翻译此条': 'Translate this',
+    '显示译文': 'Show translation',
+    '全选': 'Select all',
+    '全部重翻': 'Retranslate all',
+    '只翻空缺（原文改动过的段视为空缺）': 'Fill gaps only (segments whose original text was edited count as gaps)',
+    '只翻译当前这一条（走服务端翻译 API）': 'Translate only the current line (via the server translation API)',
+    '批量翻译字幕（译文写回工程，决策 42）': 'Batch-translate subtitles (translations are written back to the project, Decision 42)',
+    '未配置翻译 API Key（请到主 UI 预设或环境变量配置）': 'No translation API key configured (set it in the main UI preset or environment variables)',
+    '服务端导出：写入工程同目录，主流程自动识别': 'Server export: writes next to the project, auto-detected by the pipeline',
+    '服务端导出直接写入工程同目录（主流程自动识别），全量原文/译文固定导出': 'Server export writes directly next to the project (auto-detected by the pipeline); full original/translation export is always included',
+    '翻译设置由流水线预设传入，只读；修改请到主 UI 预设/任务设置': 'Translation settings come from the pipeline preset and are read-only; change them in the main UI preset/task settings',
+    '译文（空 = 未翻译；批量翻译只翻空缺）…': 'Translation (empty = untranslated; batch translate only fills gaps)…',
+    '选择要导出的颜色（全量原文/译文固定导出）': 'Select colors to export (full original/translation export is always included)',
+    '只把第一条导出字幕的起点拉到 00:00，保留其结束时间和后续字幕时间码；不改动工程或 OTIO 的时间轴': 'Shift only the first exported subtitle to start at 00:00, keeping its end time and all later timecodes; project and OTIO timelines are unchanged',
+    '生成时间': 'Generated at',
   };
 
   const textOriginals = new WeakMap();
