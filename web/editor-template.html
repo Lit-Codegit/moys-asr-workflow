@@ -736,10 +736,17 @@ __WAVEFORM_CSS__
 
 <!-- 字幕样式面板 modal（决策 43：每段行内覆盖 / 样式编辑共用同一面板） -->
 <div class="modal-mask" id="style-panel-modal">
-  <div class="modal" style="width: 660px; max-width: 94vw;">
+  <div class="modal ass-style-panel" style="width: 720px; max-width: 94vw;">
     <h3 id="style-panel-title">字幕样式</h3>
     <div id="style-panel-segment-info" class="modal-desc"></div>
-    <div class="ass-style-grid" id="style-panel-fields"></div>
+    <div id="style-panel-fields"></div>
+    <!-- 实时预览（Aegisub Style Editor 同款理念：所见即所得） -->
+    <div class="ass-style-preview">
+      <div class="ass-section-head"><span>预览</span><span class="ass-section-rule"></span></div>
+      <div class="ass-style-preview-frame" id="style-panel-preview-frame">
+        <span id="style-panel-preview-text">风格预览</span>
+      </div>
+    </div>
     <div class="actions">
       <button id="style-panel-reset" class="danger">恢复默认</button>
       <button id="style-panel-cancel">取消</button>

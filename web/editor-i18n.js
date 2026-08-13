@@ -369,6 +369,16 @@
     '它已经是默认样式': 'It is already the default style',
     '导入完成（跳过损坏行': 'Import complete (skipped damaged lines: ',
     '已导入样式目录': 'Imported style catalog',
+    // === 决策 43 样式面板重设计（分区 + 实时预览）===
+    '字体与外观': 'Font & appearance',
+    '颜色': 'Colors',
+    '描边与阴影': 'Outline & shadow',
+    '变换': 'Transform',
+    '位置与动画': 'Position & animation',
+    '对齐（数字 = \\an 编号）': 'Alignment (number = \\an)',
+    '预览': 'Preview',
+    '风格预览': 'Style preview',
+    '已设置淡入淡出（预览示意中间帧）': 'Fade in/out set (preview shows a mid-fade frame)',
     // === 决策 42 翻译面板（此前缺失，e2e i18n 全覆盖扫描暴露）===
     '翻译 ▾': 'Translate ▾',
     '翻译此条': 'Translate this',

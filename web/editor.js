@@ -6964,124 +6964,234 @@ function inputToAssColor(hex, oldAss) {
 let stylePanelContext = null;  // { mode: 'segment'|'style', idx?, styleName? }
 let stylePanelState = {};      // 面板编辑中的字段（segment 模式含 style_ref/pos/fade）
 
-const ASS_PANEL_FIELDS = [
-  { key: 'font', label: '字体', type: 'text', wide: true },
-  { key: 'font_size', label: '字号', type: 'number' },
-  { key: 'bold', label: '粗体', type: 'check' },
-  { key: 'italic', label: '斜体', type: 'check' },
-  { key: 'underline', label: '下划线', type: 'check' },
-  { key: 'strikeout', label: '删除线', type: 'check' },
-  { key: 'primary', label: '主色', type: 'color' },
-  { key: 'secondary', label: '次色', type: 'color' },
-  { key: 'outline', label: '描边色', type: 'color' },
-  { key: 'shadow', label: '阴影色', type: 'color' },
-  { key: 'outline_w', label: '描边宽度', type: 'number' },
-  { key: 'shadow_w', label: '阴影距离', type: 'number' },
-  { key: 'scale_x', label: '缩放 X%', type: 'number' },
-  { key: 'scale_y', label: '缩放 Y%', type: 'number' },
-  { key: 'spacing', label: '字距', type: 'number' },
-  { key: 'angle', label: '旋转°', type: 'number' },
+// 字段定义（分区渲染按 key 引用；unit = 输入框右侧单位后缀）
+const ASS_PANEL_FIELDS = {
+  font: { label: '字体', type: 'text', wide: true },
+  font_size: { label: '字号', type: 'number', unit: 'px' },
+  bold: { label: '粗体', type: 'check' },
+  italic: { label: '斜体', type: 'check' },
+  underline: { label: '下划线', type: 'check' },
+  strikeout: { label: '删除线', type: 'check' },
+  primary: { label: '主色', type: 'color' },
+  secondary: { label: '次色', type: 'color' },
+  outline: { label: '描边色', type: 'color' },
+  shadow: { label: '阴影色', type: 'color' },
+  outline_w: { label: '描边宽度', type: 'number', unit: 'px' },
+  shadow_w: { label: '阴影距离', type: 'number', unit: 'px' },
+  scale_x: { label: '缩放 X', type: 'number', unit: '%' },
+  scale_y: { label: '缩放 Y', type: 'number', unit: '%' },
+  spacing: { label: '字距', type: 'number', unit: 'px' },
+  angle: { label: '旋转', type: 'number', unit: '°' },
+};
+
+// 分区（Aegisub Style Editor 的字段分组思路，web 重画）
+const ASS_PANEL_SECTIONS = [
+  { label: '字体与外观', keys: ['font', 'font_size', 'bold', 'italic', 'underline', 'strikeout'] },
+  { label: '颜色', keys: ['primary', 'secondary', 'outline', 'shadow'] },
+  { label: '描边与阴影', keys: ['outline_w', 'shadow_w'] },
+  { label: '变换', keys: ['scale_x', 'scale_y', 'spacing', 'angle'] },
 ];
 
-function assFieldRow(labelText, control, mode = '') {
-  const wrap = assEl('label', { class: `ass-field ${mode}` });
-  wrap.append(assEl('span', { class: 'ass-field-label' }, tr(labelText)), control);
+function assSection(labelText, rows) {
+  const head = assEl('div', { class: 'ass-section-head' },
+    [assEl('span', {}, tr(labelText)), assEl('span', { class: 'ass-section-rule' })]);
+  return assEl('section', { class: 'ass-section' }, [head, ...rows]);
+}
+
+function assFieldRow(def, control) {
+  // label 包裹 input 保证 getByLabel 可用（e2e 契约）
+  const wrap = assEl('label', { class: `ass-field ass-field-${def.type}${def.wide ? ' ass-field-wide' : ''}` });
+  wrap.append(assEl('span', { class: 'ass-field-label' }, tr(def.label)), control);
   return wrap;
 }
 
-function renderStylePanel() {
+function buildAssControl(def, key) {
   const GEO = window.AsrEditorUtils;
-  const grid = assEl('div', { class: 'ass-style-grid' });
+  if (def.type === 'check') {
+    const control = assEl('input', { type: 'checkbox', class: 'ass-check' });
+    control.checked = !!stylePanelState[key];
+    control.addEventListener('change', () => {
+      stylePanelState[key] = control.checked;
+      updateStylePanelPreview();
+    });
+    return control;
+  }
+  if (def.type === 'color') {
+    const control = assEl('span', { class: 'ass-color-control' });
+    const input = assEl('input', { type: 'color', class: 'ass-color-input' });
+    input.value = GEO.assColorToHex(stylePanelState[key]);
+    const readout = assEl('span', { class: 'ass-color-readout' });
+    const syncReadout = () => {
+      const normalized = GEO.normalizeAssColor(stylePanelState[key]) || '&H00FFFFFF';
+      const alpha = Math.round(parseInt(normalized.slice(2, 4), 16) / 2.55);  // 0-255 → 0-100%
+      readout.textContent = `${GEO.assColorToHex(stylePanelState[key]).toUpperCase()} · A${alpha}%`;
+    };
+    syncReadout();
+    input.addEventListener('input', () => {
+      stylePanelState[key] = inputToAssColor(input.value, stylePanelState[key]);
+      syncReadout();
+      updateStylePanelPreview();
+    });
+    control.append(input, readout);
+    return control;
+  }
+  const control = assEl('span', { class: `ass-input-control${def.unit ? ' has-unit' : ''}` });
+  const input = assEl('input', {
+    type: 'text', class: 'ass-text-input',
+    inputmode: def.type === 'number' ? 'decimal' : undefined,
+    autocomplete: 'off', spellcheck: 'false',
+  });
+  input.value = (stylePanelState[key] ?? '');
+  input.addEventListener('input', () => {
+    stylePanelState[key] = def.type === 'number' ? Number(input.value) : input.value;
+    updateStylePanelPreview();
+  });
+  control.append(input);
+  if (def.unit) control.append(assEl('span', { class: 'ass-unit' }, def.unit));
+  return control;
+}
+
+// 面板内实时预览：与视频 overlay 同一套渲染逻辑（assStyleToCss + assOverlayCss），
+// 预览框把当前 PlayRes 等比缩进框内 —— 所见即所得（Aegisub Style Editor 同款理念）。
+function updateStylePanelPreview() {
+  const GEO = window.AsrEditorUtils;
+  const frame = document.getElementById('style-panel-preview-frame');
+  const textEl = document.getElementById('style-panel-preview-text');
+  if (!frame || !textEl || !stylePanelContext) return;
+  const state = GEO.normalizeAssStyle(stylePanelState);
+  const css = GEO.assStyleToCss(state, {});
+  for (const [prop, value] of Object.entries(css)) {
+    textEl.style[prop] = value;
+  }
+  const alignment = Number(stylePanelState.alignment) || 2;
+  const rect = frame.getBoundingClientRect();
+  const layout = GEO.assOverlayCss(stylePanelState.pos || null, alignment, state, rect, mediaPlayres());
+  textEl.style.position = 'absolute';
+  textEl.style.left = layout.left;
+  textEl.style.right = layout.right;
+  textEl.style.top = layout.top;
+  textEl.style.bottom = layout.bottom;
+  textEl.style.transform = layout.transform;
+  textEl.style.maxWidth = '94%';
+  textEl.style.width = 'auto';
+  textEl.style.height = 'auto';
+  const fade = stylePanelState.fade;
+  if (fade && (fade[0] > 0 || fade[1] > 0)) {
+    textEl.style.opacity = '0.6';  // 淡入淡出示意中间帧
+    textEl.title = tr('已设置淡入淡出（预览示意中间帧）');
+  } else {
+    textEl.style.opacity = '1';
+    textEl.title = '';
+  }
+}
+
+function renderStylePanel() {
+  const body = assEl('div', { class: 'ass-style-panel-body' });
   if (stylePanelContext.mode === 'segment') {
     // 段级直选（空 = 继承颜色绑定）
-    const styleSel = assEl('select');
+    const styleSel = assEl('select', { class: 'ass-select' });
     styleSel.append(assEl('option', { value: '' }, tr('继承颜色绑定')));
     (DATA.styles || []).forEach((s) => styleSel.append(assEl('option', { value: s.name }, s.name)));
     styleSel.value = stylePanelState.style_ref || '';
     styleSel.addEventListener('change', () => {
       stylePanelState.style_ref = styleSel.value || null;
+      updateStylePanelPreview();
     });
-    grid.append(assFieldRow('样式', styleSel, 'wide'));
+    body.append(assSection('样式', [
+      assFieldRow({ label: '样式', type: 'text', wide: true }, styleSel),
+    ]));
   }
-  ASS_PANEL_FIELDS.forEach((def) => {
-    let control;
-    if (def.type === 'check') {
-      control = assEl('input', { type: 'checkbox' });
-      control.checked = !!stylePanelState[def.key];
-      control.addEventListener('change', () => { stylePanelState[def.key] = control.checked; });
-    } else if (def.type === 'color') {
-      control = assEl('input', { type: 'color' });
-      control.value = GEO.assColorToHex(stylePanelState[def.key]);
-      control.addEventListener('input', () => {
-        stylePanelState[def.key] = inputToAssColor(control.value, stylePanelState[def.key]);
-      });
-    } else {
-      control = assEl('input', {
-        type: 'text',
-        inputmode: def.type === 'number' ? 'decimal' : undefined,
-        autocomplete: 'off',
-      });
-      control.value = (stylePanelState[def.key] ?? '');
-      control.addEventListener('input', () => {
-        stylePanelState[def.key] = def.type === 'number' ? Number(control.value) : control.value;
-      });
-    }
-    grid.append(assFieldRow(def.label, control, def.wide ? 'wide' : ''));
+  ASS_PANEL_SECTIONS.forEach((section) => {
+    const rows = [];
+    const chips = [];
+    section.keys.forEach((key) => {
+      const def = ASS_PANEL_FIELDS[key];
+      if (def.type === 'check') {
+        // 粗/斜/下划线/删除线排成一行胶囊开关
+        const label = assEl('label', { class: 'ass-toggle-chip' });
+        const box = assEl('input', { type: 'checkbox' });
+        box.checked = !!stylePanelState[key];
+        box.addEventListener('change', () => {
+          stylePanelState[key] = box.checked;
+          updateStylePanelPreview();
+        });
+        label.append(box, assEl('span', {}, tr(def.label)));
+        chips.push(label);
+        return;
+      }
+      rows.push(assFieldRow(def, buildAssControl(def, key)));
+    });
+    if (chips.length) rows.push(assEl('div', { class: 'ass-toggle-row' }, chips));
+    body.append(assSection(section.label, rows));
   });
   // 对齐 3×3 网格（\an 编号，Aegisub 同款布局：上 7/8/9 中 4/5/6 下 1/2/3）
-  const alignWrap = assEl('div', { class: 'ass-field ass-field-wide' });
-  alignWrap.append(assEl('span', { class: 'ass-field-label' }, tr('对齐')));
   const alignGrid = assEl('div', { class: 'ass-align-grid' });
   [7, 8, 9, 4, 5, 6, 1, 2, 3].forEach((n) => {
-    const btn = assEl('button', { type: 'button', class: `ass-align-cell${stylePanelState.alignment === n ? ' active' : ''}` }, String(n));
+    const btn = assEl('button', {
+      type: 'button',
+      class: `ass-align-cell ass-an${n}${stylePanelState.alignment === n ? ' active' : ''}`,
+      'aria-pressed': String(stylePanelState.alignment === n),
+    }, String(n));
     btn.addEventListener('click', () => {
       stylePanelState.alignment = n;
       renderStylePanel();
     });
     alignGrid.append(btn);
   });
-  alignWrap.append(alignGrid);
-  grid.append(alignWrap);
+  const alignField = assEl('div', { class: 'ass-align-field' });
+  alignField.append(alignGrid, assEl('span', { class: 'ass-align-hint' }, tr('对齐（数字 = \\an 编号）')));
+  body.append(assSection('对齐', [alignField]));
+
   if (stylePanelContext.mode === 'segment') {
     // \pos（拖动写入的值也可在此手改/清除）与 \fad
-    const posWrap = assEl('div', { class: 'ass-field ass-field-wide' });
-    posWrap.append(assEl('span', { class: 'ass-field-label' }, tr('位置（PlayRes）')));
-    const posX = assEl('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off' });
-    const posY = assEl('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off' });
+    const posRow = assEl('div', { class: 'ass-pos-row' });
+    const posX = assEl('input', { type: 'text', class: 'ass-text-input', inputmode: 'numeric', autocomplete: 'off' });
+    const posY = assEl('input', { type: 'text', class: 'ass-text-input', inputmode: 'numeric', autocomplete: 'off' });
     posX.value = stylePanelState.pos ? stylePanelState.pos[0] : '';
     posY.value = stylePanelState.pos ? stylePanelState.pos[1] : '';
-    const setPos = () => {
+    const syncPos = () => {
       const x = Number(posX.value);
       const y = Number(posY.value);
       stylePanelState.pos = (Number.isFinite(x) && Number.isFinite(y)) ? [x, y] : null;
+      updateStylePanelPreview();
     };
-    posX.addEventListener('input', setPos);
-    posY.addEventListener('input', setPos);
-    const clearPos = assEl('button', { type: 'button' }, tr('清除位置'));
+    posX.addEventListener('input', syncPos);
+    posY.addEventListener('input', syncPos);
+    const clearPos = assEl('button', { type: 'button', class: 'ass-mini-btn' }, tr('清除位置'));
     clearPos.addEventListener('click', () => {
       stylePanelState.pos = null;
       posX.value = '';
       posY.value = '';
+      updateStylePanelPreview();
     });
-    posWrap.append(posX, posY, clearPos);
-    grid.append(posWrap);
-    const fadeWrap = assEl('div', { class: 'ass-field ass-field-wide' });
-    fadeWrap.append(assEl('span', { class: 'ass-field-label' }, tr('淡入/淡出 ms')));
-    const fadeIn = assEl('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off' });
-    const fadeOut = assEl('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off' });
+    posRow.append(
+      assEl('span', { class: 'ass-field-label' }, tr('位置（PlayRes）')),
+      assEl('span', { class: 'ass-input-control has-unit' }, [posX, assEl('span', { class: 'ass-unit' }, '×')]),
+      assEl('span', { class: 'ass-input-control has-unit' }, [posY, assEl('span', { class: 'ass-unit' }, 'px')]),
+      clearPos,
+    );
+    const fadeRow = assEl('div', { class: 'ass-pos-row' });
+    const fadeIn = assEl('input', { type: 'text', class: 'ass-text-input', inputmode: 'numeric', autocomplete: 'off' });
+    const fadeOut = assEl('input', { type: 'text', class: 'ass-text-input', inputmode: 'numeric', autocomplete: 'off' });
     fadeIn.value = stylePanelState.fade ? stylePanelState.fade[0] : '';
     fadeOut.value = stylePanelState.fade ? stylePanelState.fade[1] : '';
-    const setFade = () => {
+    const syncFade = () => {
       const a = Number(fadeIn.value);
       const b = Number(fadeOut.value);
       stylePanelState.fade = (Number.isFinite(a) && Number.isFinite(b)) ? [a, b] : null;
+      updateStylePanelPreview();
     };
-    fadeIn.addEventListener('input', setFade);
-    fadeOut.addEventListener('input', setFade);
-    fadeWrap.append(fadeIn, fadeOut);
-    grid.append(fadeWrap);
+    fadeIn.addEventListener('input', syncFade);
+    fadeOut.addEventListener('input', syncFade);
+    fadeRow.append(
+      assEl('span', { class: 'ass-field-label' }, tr('淡入/淡出 ms')),
+      assEl('span', { class: 'ass-input-control has-unit' }, [fadeIn, assEl('span', { class: 'ass-unit' }, 'ms')]),
+      assEl('span', { class: 'ass-input-control has-unit' }, [fadeOut, assEl('span', { class: 'ass-unit' }, 'ms')]),
+    );
+    body.append(assSection('位置与动画', [posRow, fadeRow]));
   }
-  stylePanelFields.replaceChildren(grid);
+  stylePanelFields.replaceChildren(body);
+  updateStylePanelPreview();
 }
 
 function openStylePanel(idx) {
@@ -7096,6 +7206,10 @@ function openStylePanel(idx) {
   stylePanelState.fade = overrides.fade || null;
   stylePanelTitle.textContent = tr('字幕样式');
   stylePanelSegmentInfo.textContent = `${tr('第')} ${idx + 1} ${tr('条')}：${String(seg.text || '').slice(0, 60)}`;
+  const previewText = document.getElementById('style-panel-preview-text');
+  if (previewText) {
+    previewText.textContent = String(seg.text || '').split('\n')[0] || tr('风格预览');
+  }
   renderStylePanel();
   stylePanelModal.classList.add('show');
 }
@@ -7107,6 +7221,8 @@ function openStyleEditorForStyle(name) {
   stylePanelState = { ...style };
   stylePanelTitle.textContent = `${tr('编辑样式')}：${name}`;
   stylePanelSegmentInfo.textContent = tr('改动对所有引用该样式的字幕生效');
+  const previewText = document.getElementById('style-panel-preview-text');
+  if (previewText) previewText.textContent = '风格预览 Sample';
   renderStylePanel();
   stylePanelModal.classList.add('show');
 }
