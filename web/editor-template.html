@@ -57,6 +57,8 @@ __WAVEFORM_CSS__
   <span class="sep"></span>
   <button id="sticker-root-btn" title="设置表情包根目录">🦊 表情包</button>
   <span class="sep"></span>
+  <button id="style-manager-btn" title="管理 ASS 样式与颜色映射（决策 43）：导入本机 Aegisub 目录、编辑样式、绑定颜色">🎨 样式</button>
+  <span class="sep"></span>
   <span class="undo-redo-group" role="group" aria-label="撤销重做">
     <button type="button" id="undo-btn" title="撤销 (Ctrl(Cmd)+Z)" disabled>↶ 撤销</button>
     <button type="button" id="redo-btn" title="重做 (Ctrl(Cmd)+Shift+Z)" disabled>↷ 重做</button>
@@ -536,7 +538,6 @@ __WAVEFORM_CSS__
       <span class="info layout-toolbar-label">媒体</span>
       <label class="toggle"><input type="checkbox" id="overlay-toggle" checked> 预览字幕</label>
       <label class="toggle" title="在视频画面右上角预览当前时间的表情包"><input type="checkbox" id="sticker-overlay-toggle"> 预览表情包</label>
-      <button type="button" id="style-manager-btn" title="管理 ASS 样式与颜色映射（决策 43）">样式…</button>
     </div>
     <div class="player-stage">
       __MEDIA_HTML__
@@ -736,7 +737,7 @@ __WAVEFORM_CSS__
 
 <!-- 字幕样式面板 modal（决策 43：每段行内覆盖 / 样式编辑共用同一面板） -->
 <div class="modal-mask" id="style-panel-modal">
-  <div class="modal ass-style-panel" style="width: 720px; max-width: 94vw;">
+  <div class="modal ass-style-panel" style="width: 880px; max-width: 96vw;">
     <h3 id="style-panel-title">字幕样式</h3>
     <div id="style-panel-segment-info" class="modal-desc"></div>
     <div id="style-panel-fields"></div>

@@ -3652,6 +3652,7 @@ overlayEl.addEventListener('pointerdown', (event) => {
     anchor,
     idx: lastActive,
     undoPushed: false,
+    started: false,
   };
   try { event.target.setPointerCapture?.(event.pointerId); } catch (_) {}
 });
@@ -3659,11 +3660,16 @@ overlayEl.addEventListener('pointermove', (event) => {
   if (!assDrag || event.pointerId !== assDrag.pointerId) return;
   const seg = DATA.segments[assDrag.idx];
   if (!seg) return;
+  const dx = event.clientX - assDrag.startX;
+  const dy = event.clientY - assDrag.startY;
+  // 3px 阈值：普通点击/误触不写位置（决策 43：拖动 = 有意修改该段 \pos）
+  if (!assDrag.started && Math.hypot(dx, dy) < 3) return;
+  assDrag.started = true;
   const rect = playerStage.getBoundingClientRect();
   const playres = mediaPlayres();
   const next = window.AsrEditorUtils.viewportToPlayres({
-    left: assDrag.anchor.left + (event.clientX - assDrag.startX),
-    top: assDrag.anchor.top + (event.clientY - assDrag.startY),
+    left: assDrag.anchor.left + dx,
+    top: assDrag.anchor.top + dy,
   }, playres, rect);
   if (!assDrag.undoPushed) { pushUndo('拖动字幕位置'); assDrag.undoPushed = true; }
   if (!seg.overrides || typeof seg.overrides !== 'object') seg.overrides = {};
@@ -3673,6 +3679,7 @@ overlayEl.addEventListener('pointermove', (event) => {
 function endAssDrag(event) {
   if (!assDrag || event.pointerId !== assDrag.pointerId) return;
   try { event.target.releasePointerCapture?.(event.pointerId); } catch (_) {}
+  if (assDrag.undoPushed) flashHint(tr('已写入该段位置（\pos）；双击字幕可打开面板清除'));
   assDrag = null;
 }
 overlayEl.addEventListener('pointerup', endAssDrag);
@@ -7024,7 +7031,8 @@ function buildAssControl(def, key) {
     const syncReadout = () => {
       const normalized = GEO.normalizeAssColor(stylePanelState[key]) || '&H00FFFFFF';
       const alpha = Math.round(parseInt(normalized.slice(2, 4), 16) / 2.55);  // 0-255 → 0-100%
-      readout.textContent = `${GEO.assColorToHex(stylePanelState[key]).toUpperCase()} · A${alpha}%`;
+      const hex = GEO.assColorToHex(stylePanelState[key]).toUpperCase();
+      readout.textContent = alpha > 0 ? `${hex}·${alpha}%` : hex;
     };
     syncReadout();
     input.addEventListener('input', () => {

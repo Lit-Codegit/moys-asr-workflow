@@ -1638,18 +1638,29 @@
   max-height: 92vh;
   overflow: auto;
 }
-.ass-style-panel { padding: 20px 22px; }
-.ass-style-panel-body { display: flex; flex-direction: column; gap: 16px; }
-
-/* —— 分区：发丝线小标题 —— */
-.ass-section {
+.ass-style-panel {
+  padding: 14px 16px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  column-gap: 14px;
-  row-gap: 10px;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  column-gap: 16px;
+  align-items: start;
+}
+.ass-style-panel h3 { grid-column: 1 / -1; margin-bottom: 6px; }
+.ass-style-panel .modal-desc { grid-column: 1 / -1; }
+.ass-style-panel #style-panel-fields { grid-column: 1; min-width: 0; }
+.ass-style-panel .ass-style-preview { grid-column: 2; position: sticky; top: 0; align-self: start; }
+.ass-style-panel .actions { grid-column: 1 / -1; margin-top: 10px; }
+.ass-style-panel-body { display: flex; flex-direction: column; gap: 8px; }
+
+/* —— 分区：发丝线小标题 + 行内流动字段（紧凑：标签在左，短输入在右）—— */
+.ass-section {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
 }
 .ass-section-head {
-  grid-column: 1 / -1;
+  flex-basis: 100%;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1660,26 +1671,29 @@
   color: var(--text-muted);
 }
 .ass-section-rule { flex: 1; height: 1px; background: var(--border-subtle); }
-.ass-field-wide { grid-column: 1 / -1; }
-.ass-toggle-row { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; }
+.ass-field-wide { flex-basis: 100%; }
+.ass-toggle-row { display: flex; gap: 6px; flex-wrap: wrap; }
 
-/* —— 字段：标签在上、控件在下 —— */
+/* —— 字段：标签在左、控件在右，短输入框一排多放 —— */
 .ass-style-panel .ass-field {
   display: flex;
-  flex-direction: column;
-  gap: 5px;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
   margin: 0;
   font-size: 12px;
   color: var(--text-secondary);
 }
 .ass-style-panel .ass-field-label {
+  min-width: 44px;
+  flex: none;
   font-size: 11.5px;
   color: var(--text-muted);
   letter-spacing: 0.02em;
 }
 
-/* —— 文本/数字输入：等宽读数 + 单位后缀 —— */
+/* —— 文本/数字输入：等宽读数 + 单位后缀（窄输入 64px，宽字段撑满）—— */
 .ass-style-panel .ass-input-control {
   display: inline-flex;
   align-items: center;
@@ -1693,21 +1707,25 @@
   border-color: var(--accent-line);
   box-shadow: var(--focus-ring);
 }
-.ass-style-panel .ass-text-input {
+.ass-style-panel .ass-field .ass-text-input, .ass-style-panel .ass-pos-row .ass-text-input {
   border: none;
   background: transparent;
   color: var(--text-primary);
   font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
   font-size: 12.5px;
-  padding: 6px 8px;
-  width: 100%;
+  padding: 4px 7px;
+  width: 64px;
   min-width: 0;
   outline: none;
   box-shadow: none;
 }
-.ass-style-panel .ass-text-input:focus { outline: none; border: none; box-shadow: none; }
+.ass-style-panel .ass-field-number .ass-text-input { width: 48px; }
+.ass-style-panel .ass-pos-row .ass-input-control .ass-text-input { width: 64px; }
+.ass-style-panel .ass-field-wide .ass-input-control { flex: 1; width: auto; }
+.ass-style-panel .ass-field-wide .ass-text-input { width: 100%; }
+.ass-style-panel .ass-field .ass-text-input:focus, .ass-style-panel .ass-pos-row .ass-text-input:focus { outline: none; border: none; box-shadow: none; }
 .ass-style-panel .ass-unit {
-  padding: 0 8px;
+  padding: 0 6px;
   font-size: 10px;
   color: var(--text-muted);
   letter-spacing: 0.08em;
@@ -1717,7 +1735,7 @@
 }
 .ass-style-panel .ass-select {
   width: 100%;
-  padding: 6px 8px;
+  padding: 5px 7px;
   font-size: 12.5px;
   color: var(--text-primary);
   background: var(--bg-input);
@@ -1728,12 +1746,12 @@
 .ass-style-panel .ass-select:focus { border-color: var(--accent-line); box-shadow: var(--focus-ring); }
 
 /* —— 胶囊开关（粗/斜/下划线/删除线）—— */
-.ass-toggle-chip {
+.ass-style-panel .ass-toggle-chip {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   margin: 0;
-  padding: 5px 12px;
+  padding: 4px 9px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg-input);
@@ -1746,8 +1764,8 @@
 .ass-toggle-chip input {
   appearance: none;
   -webkit-appearance: none;
-  width: 11px;
-  height: 11px;
+  width: 10px;
+  height: 10px;
   margin: 0;
   border: 1px solid var(--border-strong);
   border-radius: 3px;
@@ -1762,14 +1780,14 @@
   color: var(--text-primary);
 }
 
-/* —— 颜色：方形色样 + 等宽读数（HEX · 透明度）—— */
-.ass-style-panel .ass-color-control { display: flex; align-items: center; gap: 10px; min-width: 0; }
+/* —— 颜色：方形色样 + 等宽短读数（一排四色）—— */
+.ass-style-panel .ass-color-control { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .ass-style-panel .ass-color-input {
   appearance: none;
   -webkit-appearance: none;
   flex: none;
-  width: 36px;
-  height: 36px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
@@ -1778,27 +1796,27 @@
   transition: border-color var(--t-fast), box-shadow var(--t-fast);
 }
 .ass-style-panel .ass-color-input:hover { border-color: var(--accent-line); }
-.ass-style-panel .ass-color-input::-webkit-color-swatch-wrapper { padding: 4px; }
+.ass-style-panel .ass-color-input::-webkit-color-swatch-wrapper { padding: 3px; }
 .ass-style-panel .ass-color-input::-webkit-color-swatch { border: none; border-radius: 3px; }
 .ass-style-panel .ass-color-input::-moz-color-swatch { border: none; border-radius: 3px; }
 .ass-style-panel .ass-color-readout {
   font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace;
   font-size: 10.5px;
   color: var(--text-muted);
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 /* —— 对齐 3×3：琥珀色激活格 + 锚点指示点 —— */
-.ass-style-panel .ass-align-field { display: flex; align-items: flex-start; gap: 14px; }
+.ass-style-panel .ass-align-field { display: flex; align-items: flex-start; gap: 10px; }
 .ass-style-panel .ass-align-grid {
   display: grid;
-  grid-template-columns: repeat(3, 42px);
-  grid-auto-rows: 32px;
-  gap: 3px;
-  padding: 4px;
+  grid-template-columns: repeat(3, 34px);
+  grid-auto-rows: 24px;
+  gap: 2px;
+  padding: 3px;
   width: fit-content;
   background: var(--bg-input);
   border: 1px solid var(--border-subtle);
@@ -1811,7 +1829,7 @@
   background: transparent;
   color: var(--text-muted);
   font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace;
-  font-size: 11.5px;
+  font-size: 11px;
   cursor: pointer;
   transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
 }
@@ -1821,7 +1839,7 @@
   border-color: var(--amber-line);
   color: var(--amber-hover);
 }
-/* 锚点指示点：n 语义下文本落点（上排=7/8/9，中排=4/5/6，下排=1/2/3） */
+/* 锚点指示点：\an 语义下文本落点（上排=7/8/9，中排=4/5/6，下排=1/2/3） */
 .ass-style-panel .ass-align-cell::after {
   content: "";
   position: absolute;
@@ -1832,26 +1850,26 @@
   transition: background var(--t-fast);
 }
 .ass-style-panel .ass-align-cell.active::after { background: var(--amber); }
-.ass-style-panel .ass-an1::after, .ass-style-panel .ass-an4::after, .ass-style-panel .ass-an7::after { left: 5px; }
+.ass-style-panel .ass-an1::after, .ass-style-panel .ass-an4::after, .ass-style-panel .ass-an7::after { left: 4px; }
 .ass-style-panel .ass-an2::after, .ass-style-panel .ass-an5::after, .ass-style-panel .ass-an8::after { left: 50%; margin-left: -2px; }
-.ass-style-panel .ass-an3::after, .ass-style-panel .ass-an6::after, .ass-style-panel .ass-an9::after { right: 5px; }
-.ass-style-panel .ass-an7::after, .ass-style-panel .ass-an8::after, .ass-style-panel .ass-an9::after { top: 5px; }
+.ass-style-panel .ass-an3::after, .ass-style-panel .ass-an6::after, .ass-style-panel .ass-an9::after { right: 4px; }
+.ass-style-panel .ass-an7::after, .ass-style-panel .ass-an8::after, .ass-style-panel .ass-an9::after { top: 4px; }
 .ass-style-panel .ass-an4::after, .ass-style-panel .ass-an5::after, .ass-style-panel .ass-an6::after { top: 50%; margin-top: -2px; }
-.ass-style-panel .ass-an1::after, .ass-style-panel .ass-an2::after, .ass-style-panel .ass-an3::after { bottom: 5px; }
+.ass-style-panel .ass-an1::after, .ass-style-panel .ass-an2::after, .ass-style-panel .ass-an3::after { bottom: 4px; }
 .ass-style-panel .ass-align-hint { font-size: 11px; color: var(--text-faint); line-height: 1.6; }
 
 /* —— 位置 / 淡入淡出 行 —— */
 .ass-style-panel .ass-pos-row {
-  grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
+  flex-wrap: wrap;
 }
-.ass-style-panel .ass-pos-row .ass-field-label { min-width: 92px; flex: none; }
-.ass-style-panel .ass-pos-row .ass-input-control { width: 104px; flex: none; }
+.ass-style-panel .ass-pos-row .ass-field-label { min-width: 84px; flex: none; }
+.ass-style-panel .ass-pos-row .ass-input-control { width: 84px; flex: none; }
 .ass-mini-btn {
-  padding: 5px 10px;
+  padding: 4px 9px;
   font-size: 11.5px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -2713,7 +2731,7 @@
 
 <h1>
   <span class="media-name empty" id="media-name" title="">未加载媒体</span>
-  <span class="gen-time" id="gen-time" data-label="生成时间">生成时间 2026-08-13 17:03</span>
+  <span class="gen-time" id="gen-time" data-label="生成时间">生成时间 2026-08-13 18:03</span>
   <span class="json-name empty" id="json-name" title="点击复制工程文件名">未加载工程</span>
 </h1>
 <div class="toolbar row-actions">
@@ -2745,6 +2763,8 @@
   </span>
   <span class="sep"></span>
   <button id="sticker-root-btn" title="设置表情包根目录">🦊 表情包</button>
+  <span class="sep"></span>
+  <button id="style-manager-btn" title="管理 ASS 样式与颜色映射（决策 43）：导入本机 Aegisub 目录、编辑样式、绑定颜色">🎨 样式</button>
   <span class="sep"></span>
   <span class="undo-redo-group" role="group" aria-label="撤销重做">
     <button type="button" id="undo-btn" title="撤销 (Ctrl(Cmd)+Z)" disabled>↶ 撤销</button>
@@ -3225,7 +3245,6 @@
       <span class="info layout-toolbar-label">媒体</span>
       <label class="toggle"><input type="checkbox" id="overlay-toggle" checked> 预览字幕</label>
       <label class="toggle" title="在视频画面右上角预览当前时间的表情包"><input type="checkbox" id="sticker-overlay-toggle"> 预览表情包</label>
-      <button type="button" id="style-manager-btn" title="管理 ASS 样式与颜色映射（决策 43）">样式…</button>
     </div>
     <div class="player-stage">
       <audio id="player" preload="metadata" style="width:100%;display:block;"></audio>
@@ -3425,7 +3444,7 @@
 
 <!-- 字幕样式面板 modal（决策 43：每段行内覆盖 / 样式编辑共用同一面板） -->
 <div class="modal-mask" id="style-panel-modal">
-  <div class="modal ass-style-panel" style="width: 720px; max-width: 94vw;">
+  <div class="modal ass-style-panel" style="width: 880px; max-width: 96vw;">
     <h3 id="style-panel-title">字幕样式</h3>
     <div id="style-panel-segment-info" class="modal-desc"></div>
     <div id="style-panel-fields"></div>
@@ -12063,6 +12082,7 @@ overlayEl.addEventListener('pointerdown', (event) => {
     anchor,
     idx: lastActive,
     undoPushed: false,
+    started: false,
   };
   try { event.target.setPointerCapture?.(event.pointerId); } catch (_) {}
 });
@@ -12070,11 +12090,16 @@ overlayEl.addEventListener('pointermove', (event) => {
   if (!assDrag || event.pointerId !== assDrag.pointerId) return;
   const seg = DATA.segments[assDrag.idx];
   if (!seg) return;
+  const dx = event.clientX - assDrag.startX;
+  const dy = event.clientY - assDrag.startY;
+  // 3px 阈值：普通点击/误触不写位置（决策 43：拖动 = 有意修改该段 \pos）
+  if (!assDrag.started && Math.hypot(dx, dy) < 3) return;
+  assDrag.started = true;
   const rect = playerStage.getBoundingClientRect();
   const playres = mediaPlayres();
   const next = window.AsrEditorUtils.viewportToPlayres({
-    left: assDrag.anchor.left + (event.clientX - assDrag.startX),
-    top: assDrag.anchor.top + (event.clientY - assDrag.startY),
+    left: assDrag.anchor.left + dx,
+    top: assDrag.anchor.top + dy,
   }, playres, rect);
   if (!assDrag.undoPushed) { pushUndo('拖动字幕位置'); assDrag.undoPushed = true; }
   if (!seg.overrides || typeof seg.overrides !== 'object') seg.overrides = {};
@@ -12084,6 +12109,7 @@ overlayEl.addEventListener('pointermove', (event) => {
 function endAssDrag(event) {
   if (!assDrag || event.pointerId !== assDrag.pointerId) return;
   try { event.target.releasePointerCapture?.(event.pointerId); } catch (_) {}
+  if (assDrag.undoPushed) flashHint(tr('已写入该段位置（\pos）；双击字幕可打开面板清除'));
   assDrag = null;
 }
 overlayEl.addEventListener('pointerup', endAssDrag);
@@ -15435,7 +15461,8 @@ function buildAssControl(def, key) {
     const syncReadout = () => {
       const normalized = GEO.normalizeAssColor(stylePanelState[key]) || '&H00FFFFFF';
       const alpha = Math.round(parseInt(normalized.slice(2, 4), 16) / 2.55);  // 0-255 → 0-100%
-      readout.textContent = `${GEO.assColorToHex(stylePanelState[key]).toUpperCase()} · A${alpha}%`;
+      const hex = GEO.assColorToHex(stylePanelState[key]).toUpperCase();
+      readout.textContent = alpha > 0 ? `${hex}·${alpha}%` : hex;
     };
     syncReadout();
     input.addEventListener('input', () => {

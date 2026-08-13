@@ -291,6 +291,8 @@
     '拖动调整当前字幕与字幕列表高度': 'Drag to resize current-subtitle and subtitle-list heights',
     // === ASS 样式（决策 43）===
     '样式…': 'Styles…',
+    '🎨 样式': '🎨 Styles',
+    '管理 ASS 样式与颜色映射（决策 43）：导入本机 Aegisub 目录、编辑样式、绑定颜色': 'Manage ASS styles and color mappings (Decision 43): import your local Aegisub catalog, edit styles, bind colors',
     '管理 ASS 样式与颜色映射（决策 43）': 'Manage ASS styles and color mappings (Decision 43)',
     '字幕预览。拖动调整位置（写入该段 \\pos）；双击打开样式面板。': 'Subtitle preview. Drag to reposition (writes \\pos for this segment); double-click to open the style panel.',
     '样式管理器': 'Style Manager',
@@ -379,6 +381,7 @@
     '预览': 'Preview',
     '风格预览': 'Style preview',
     '已设置淡入淡出（预览示意中间帧）': 'Fade in/out set (preview shows a mid-fade frame)',
+    '已写入该段位置（\\pos）；双击字幕可打开面板清除': 'Position written for this segment (\\pos); double-click the subtitle to open the panel and clear it',
     // === 决策 42 翻译面板（此前缺失，e2e i18n 全覆盖扫描暴露）===
     '翻译 ▾': 'Translate ▾',
     '翻译此条': 'Translate this',
