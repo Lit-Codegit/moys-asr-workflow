@@ -21,6 +21,8 @@
   "gap_remove": { ... },
   "workspace": { ... },
   "preview": { ... },
+  "styles": [ ... ],
+  "color_styles": { ... },
   "segments": [ ... ]
 }
 ```
@@ -36,7 +38,9 @@
 | `waveform` | `object` | 否 | 可丢弃的紧凑波形缓存。由 `edit.py` 或浏览器自动生成；不影响字幕语义 |
 | `gap_remove` | `object` | 否 | 可逆的空隙移除决定。保留原始媒体/字幕时间，仅描述导出与跳过播放时使用的派生时间轴 |
 | `workspace` | `object` | 否 | 编辑器工作区：四个功能区的窗口布局与显示状态；不影响字幕和波形缓存。服务器版也可使用独立的本机命名工作区库跨工程复用 |
-| `preview` | `object` | 否 | 预览呈现设置。含 `preview.subtitle`（字幕预览框、可选字号与字体）与 `preview.sticker`（表情包预览层）两个归一化几何。不影响字幕时间与文本 |
+| `preview` | `object` | 否 | 预览呈现设置。含 `preview.subtitle`（字幕预览框、可选字号与字体）与 `preview.sticker`（表情包预览层）两个归一化几何。不影响字幕时间与文本。**决策 43 起 `preview.subtitle` 几何废弃**：字幕位置改为段级 `overrides.pos`（PlayRes 坐标，见 §1.5/§4.5），旧工程该字段被忽略 |
+| `styles` | `array<object>` | 否 | 命名样式目录（决策 43，见 §1.5）。缺失/空 → 编辑器与导出器自动注入 Aegisub 默认样式 `Default`（无感迁移） |
+| `color_styles` | `object` | 否 | 颜色名 → 样式名映射（决策 43，见 §1.5）。任务级绑定，非全局 |
 
 ### 1.0 工程文件扩展名
 
@@ -191,6 +195,61 @@
 - `preview` 缺失或 `preview.subtitle` 缺失时按**旧工程**处理，编辑器使用默认几何 `{ x: 0.175, y: 0.76, width: 0.65, height: 0.16 }`——字幕带占 76%→92%（底部留 8%），宽度 65% 居中。
 - `preview.sticker` 缺失时同样按旧工程处理，使用默认几何 `{ x: 0.73, y: 0.04, width: 0.24, height: 0.3 }`（右上角）。两个几何共用同一套归一化与钳制规则。
 - 该几何只移动/缩放预览框容器；内部文字 `<span>` 仍保持居中与药丸样式，`segments[*].start/end/items[*].start/end` 永不被此几何改动。
+- **决策 43 起废弃**：`preview.subtitle` 不再驱动字幕预览位置（样式扩展落地后由段级 `overrides.pos` + 样式对齐/边距驱动，编辑器忽略该几何）。
+
+### 1.5 styles 样式目录 + color_styles 颜色映射（决策 43）
+
+ASS 样式扩展：样式目录与颜色→样式绑定均为**任务级**（存于工程内，与 Aegisub
+「每个 .ass 文件自带 [V4+ Styles] 段」同款逻辑；从 `~/.aegisub/catalog/*.sty`
+或 .ass 的 Styles 段导入，可混合导入多套）。
+
+```json
+{
+  "styles": [
+    { "name": "Default", "font": "Arial", "font_size": 48, "primary": "&H00FFFFFF",
+      "secondary": "&H000000FF", "outline": "&H00000000", "shadow": "&H00000000",
+      "bold": false, "italic": false, "underline": false, "strikeout": false,
+      "scale_x": 100, "scale_y": 100, "spacing": 0, "angle": 0,
+      "border_style": 1, "outline_w": 2, "shadow_w": 2, "alignment": 2,
+      "margin_l": 10, "margin_r": 10, "margin_v": 10, "encoding": 1 },
+    { "name": "lika", "font": "思源黑体 CN Heavy", "font_size": 50, "primary": "&H00FFFFFF",
+      "secondary": "&H00FFFFFF", "outline": "&H193A85F0", "shadow": "&H910E0807",
+      "bold": false, "italic": false, "underline": false, "strikeout": false,
+      "scale_x": 100, "scale_y": 100, "spacing": 0, "angle": 0,
+      "border_style": 1, "outline_w": 4, "shadow_w": 5, "alignment": 2,
+      "margin_l": 135, "margin_r": 135, "margin_v": 140, "encoding": 1 }
+  ],
+  "color_styles": { "red": "lika" }
+}
+```
+
+styles 元素 = Aegisub AssStyle 23 字段的 JSON 镜像（snake_case），全部可选
+（缺失按 Aegisub 默认值补）：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `name` | `string` | 样式名。工程内唯一；`Default` 恒在、不可删（可编辑字段）。序列化时逗号替换为分号（Aegisub 同款） |
+| `font` | `string` | 字体族名 |
+| `font_size` | `number` | 字号（默认 48） |
+| `primary` / `secondary` / `outline` / `shadow` | `string` | 四色，`&H{A}{B}{G}{R}` 8 位十六进制（**前两位 alpha + 后六位 BGR**）。导入接受 6 位（alpha 补 00）/8 位/SSA 十进制，统一规范化 8 位大写 |
+| `bold` / `italic` / `underline` / `strikeout` | `bool` | 粗斜下划线删除线（序列化 -1/0，SSA 遗留惯例） |
+| `scale_x` / `scale_y` | `number` | 横/纵缩放百分比（100 = 100%） |
+| `spacing` | `number` | 字距（像素） |
+| `angle` | `number` | 逆时针旋转角度 |
+| `border_style` | `int` | 边框样式：1 正常描边 / 3 不透明边框盒 |
+| `outline_w` / `shadow_w` | `number` | 描边宽度 / 阴影距离（像素） |
+| `alignment` | `int` | `\an` 编号对齐（1-9 九宫格）。v4+ Style 行**原样透传**，不做 SSA 转换 |
+| `margin_l` / `margin_r` / `margin_v` | `int` | 左/右/垂直边距，钳制 [-9999, 99999] |
+| `encoding` | `int` | 字体编码（默认 1） |
+
+`color_styles`：键 = 5 种固定颜色名之一（yellow/green/red/purple/blue），值 =
+`styles` 中的样式名。指向不存在样式 → 该颜色回落 `Default`。映射为任务级，
+不随颜色 head/ref 的增删而丢失（存顶层而非颜色 head 段）。
+
+- **解析容错（决策 43⑤）**：字段数 ≠ 23、数值/颜色损坏的 Style 行**整行跳过**
+  （调用方计数提示）；`[Script Info]`/`[Events]` 段与动画标签（`\t`/`\move`/
+  `\k`/`\clip` 等）不在 v1 解析路径上（未来导入对话行时容错跳过）。
+- 同名导入冲突由 UI 处理（覆盖/跳过/改名三选一）；解析器不隐式改名。
 
 ---
 
@@ -210,6 +269,8 @@
   "sticker_ref": null,
   "color": null,
   "color_ref": null,
+  "style_ref": null,
+  "overrides": null,
   "_dirty": false
 }
 ```
@@ -226,6 +287,8 @@
 | `sticker_ref` | `object\|null` | 否 | 引用上方 head 的表情包（跨多句用） |
 | `color` | `object\|null` | 否 | 颜色标记 head。见第四节 |
 | `color_ref` | `object\|null` | 否 | 引用上方 head 的颜色 |
+| `style_ref` | `string\|null` | 否 | 段级直选样式名（决策 43：突破 5 色上限的后门）。**解析链 = 段 style_ref > 顶层 color_styles[有效颜色] > Default**；指向不存在样式 → 回落下一级 |
+| `overrides` | `object\|null` | 否 | 行内覆盖（决策 43）。`{pos:[x,y], fade:[入,出], 或任意可覆盖样式字段}`，见 §4.5 |
 | `_dirty` | `bool` | 否 | 是否被人工改过。**生成时不要写 `true`**，仅由编辑器内部维护 |
 
 ### 关键约束
@@ -309,7 +372,7 @@
 { "name": "red", "value": "#e74c3c", "start": 1234, "end": 9999 }
 ```
 
-`name` 只能是以下 5 种之一：
+`name` 只能是以下 5 种之一（决策 43 注意：颜色→样式的绑定**不存**在 color head 里，而在顶层 `color_styles`，见 §1.5——head 段被删/合并不会丢映射）：
 
 | name | value |
 |---|---|
@@ -324,6 +387,35 @@
 ```json
 { "name": "red", "headIdx": 5 }
 ```
+
+### 4.5 行内覆盖 overrides（决策 43）
+
+`segments[i].overrides` 为可覆盖字段子集 + 位置 + 淡入淡出，导出为 Dialogue 行
+文本前缀的行内标签块（标签顺序与 Aegisub 标签表一致）：
+
+```json
+{ "pos": [960, 900], "fade": [150, 200], "font_size": 60,
+  "outline": "&H193A85F0", "bold": true }
+```
+→ `{\pos(960,900)\fad(150,200)\3c&H3A85F0&\fs60\b1}`
+
+| 字段 | 类型 | 导出标签 | 说明 |
+|---|---|---|---|
+| `pos` | `[int,int]` | `\pos(x,y)` | PlayRes 绝对像素（PlayRes = 媒体视频分辨率，无视频回落 Aegisub 默认 1280×720）。**无 pos 的段按样式对齐+边距渲染**；拖动 = 写 pos，可清除恢复样式定位 |
+| `fade` | `[int,int]` | `\fad(入,出)` | 毫秒，0 = 无。仅支持简单淡入淡出；`\fade` 7 参版不引入 |
+| `font` | `string` | `\fn` | |
+| `font_size` | `number` | `\fs` | |
+| `primary` / `secondary` / `outline` / `shadow` | `string` | `\1c`-`\4c` | 覆盖标签颜色 = `&H{B}{G}{R}&` 6 位写法（导出时自动转换） |
+| `bold` / `italic` / `underline` / `strikeout` | `bool` | `\b`/`\i`/`\u`/`\s` | 1/0 |
+| `scale_x` / `scale_y` | `number` | `\fscx`/`\fscy` | |
+| `spacing` | `number` | `\fsp` | |
+| `angle` | `number` | `\frz` | |
+| `outline_w` / `shadow_w` | `number` | `\bord`/`\shad` | |
+| `alignment` | `int` | `\an` | |
+
+**不可覆盖**（样式专属字段，出现在 overrides 中会被忽略）：`border_style`、
+`margin_l/r/v`、`encoding`、`name`。损坏的覆盖值（如 pos 非二元数组）→
+该标签忽略，不炸整段。
 
 ---
 

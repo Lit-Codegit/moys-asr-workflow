@@ -1,11 +1,13 @@
 # pyright: reportAny=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportReturnType=false
 
-"""把 MAWE 编辑后的 .mosp 工程文件导出为 SRT（决策 42：多文件导出集）。
+"""把 MAWE 编辑后的 .mosp 工程文件导出为 SRT + ASS（决策 42/43：多文件导出集）。
 
-默认（无额外参数）：只导出全量原文 SRT（历史行为，供 p3 字幕烧录）。
-- `--translation`：追加导出全量译文 <stem>_<lang>.srt（只含有译文的段）
-- `--colors all|<颜色名,...>`：按颜色拆分导出 <stem>_<颜色>.srt 与
-  <stem>_<lang>_<颜色>.srt（无色段 = default；需要 --translation 才有译文分色文件）
+默认（无额外参数）：只导出全量原文 SRT + 全量原文 ASS（历史行为，供 p3 字幕烧录）。
+- `--translation`：追加导出全量译文 <stem>_<lang>.srt / .ass（只含有译文的段）
+- `--colors all|<颜色名,...>`：按颜色拆分导出 <stem>_<颜色> 与
+  <stem>_<lang>_<颜色>（无色段 = default；需要 --translation 才有译文分色文件）
+- ASS 与 SRT 同批产出（决策 43⑧）：.ass 携带工程样式目录（styles/color_styles）
+  与段行内覆盖（\\pos/\\fad 等），PlayRes 取媒体分辨率
 
 用法：
     python mosp_to_srt.py <input.mosp> [-o output.srt]
@@ -17,6 +19,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from ass_export import export_ass_set
 from export_srt import export_srt_set, load_mosp
 
 
@@ -58,7 +61,7 @@ def main() -> int:
                        if args.colors == "all" else
                        [c.strip() for c in args.colors.split(",") if c.strip()])
     if not args.translation:
-        # 不导出译文/颜色时维持旧语义：仅写一份原文 SRT 到 -o
+        # 不导出译文/颜色时维持旧语义：仅写一份原文 SRT 到 -o；ASS 同步写全量
         from export_srt import write_srt
         original = [
             {"start": int(s["start"]), "end": int(s["end"]), "text": s["text"].strip()}
@@ -68,11 +71,16 @@ def main() -> int:
         if not write_srt(output, original):
             print("错误: 工程中没有可导出的字幕段", file=sys.stderr)
             return 3
+        ass_files = export_ass_set(project, out_dir, base_name=base_name, colors=[])
         print(f"已导出 {len(original)} 条字幕: {output}")
+        for p in ass_files:
+            print(f"已导出: {p}")
         return 0
 
     written = export_srt_set(project, out_dir, base_name=base_name,
                              colors=want_colors)
+    written += export_ass_set(project, out_dir, base_name=base_name,
+                              colors=want_colors)
     for p in written:
         print(f"已导出: {p}")
     print(f"导出完成: {len(written)} 个文件 → {out_dir}")
