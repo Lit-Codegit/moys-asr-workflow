@@ -1641,8 +1641,8 @@
 .ass-style-panel {
   padding: 14px 16px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  column-gap: 16px;
+  grid-template-columns: minmax(0, 1fr) 440px;
+  column-gap: 18px;
   align-items: start;
 }
 .ass-style-panel h3 { grid-column: 1 / -1; margin-bottom: 6px; }
@@ -2731,7 +2731,7 @@
 
 <h1>
   <span class="media-name empty" id="media-name" title="">未加载媒体</span>
-  <span class="gen-time" id="gen-time" data-label="生成时间">生成时间 2026-08-13 18:30</span>
+  <span class="gen-time" id="gen-time" data-label="生成时间">生成时间 2026-08-13 19:19</span>
   <span class="json-name empty" id="json-name" title="点击复制工程文件名">未加载工程</span>
 </h1>
 <div class="toolbar row-actions">
@@ -3444,7 +3444,7 @@
 
 <!-- 字幕样式面板 modal（决策 43：每段行内覆盖 / 样式编辑共用同一面板） -->
 <div class="modal-mask" id="style-panel-modal">
-  <div class="modal ass-style-panel" style="width: 880px; max-width: 96vw;">
+  <div class="modal ass-style-panel" style="width: 1040px; max-width: 96vw;">
     <h3 id="style-panel-title">字幕样式</h3>
     <div id="style-panel-segment-info" class="modal-desc"></div>
     <div id="style-panel-fields"></div>
@@ -15538,8 +15538,10 @@ function updateStylePanelPreview() {
   frame.style.aspectRatio = `${playres[0]} / ${playres[1]}`;
   const alignment = Number(stylePanelState.alignment) || 2;
   const rect = frame.getBoundingClientRect();
-  // 字号/描边/阴影按框高/PlayResY 等比缩放（与视频 overlay 同一套逻辑）
-  const css = GEO.scaleAssStyleCss(GEO.assStyleToCss(state, {}), rect.height / playres[1]);
+  // 字号/描边/阴影按框高/PlayResY 等比缩放（与视频 overlay 同一套逻辑）；
+  // 面板预览下限 0.45×：小画幅下 1080p 的 50px 字号会缩到不可读，保底放大
+  const css = GEO.scaleAssStyleCss(GEO.assStyleToCss(state, {}),
+    Math.max(rect.height / playres[1], 0.45));
   for (const [prop, value] of Object.entries(css)) {
     textEl.style[prop] = value;
   }
@@ -15690,6 +15692,7 @@ function openStylePanel(idx) {
   }
   renderStylePanel();
   stylePanelModal.classList.add('show');
+  updateStylePanelPreview();  // modal 显示后才能测到真实框体尺寸（隐藏时 rect 为 0）
 }
 
 function openStyleEditorForStyle(name) {
@@ -15703,6 +15706,7 @@ function openStyleEditorForStyle(name) {
   if (previewText) previewText.textContent = '风格预览 Sample';
   renderStylePanel();
   stylePanelModal.classList.add('show');
+  updateStylePanelPreview();  // modal 显示后才能测到真实框体尺寸（隐藏时 rect 为 0）
 }
 
 function closeStylePanel() {

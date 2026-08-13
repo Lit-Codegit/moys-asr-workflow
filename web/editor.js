@@ -7096,8 +7096,10 @@ function updateStylePanelPreview() {
   frame.style.aspectRatio = `${playres[0]} / ${playres[1]}`;
   const alignment = Number(stylePanelState.alignment) || 2;
   const rect = frame.getBoundingClientRect();
-  // 字号/描边/阴影按框高/PlayResY 等比缩放（与视频 overlay 同一套逻辑）
-  const css = GEO.scaleAssStyleCss(GEO.assStyleToCss(state, {}), rect.height / playres[1]);
+  // 字号/描边/阴影按框高/PlayResY 等比缩放（与视频 overlay 同一套逻辑）；
+  // 面板预览下限 0.45×：小画幅下 1080p 的 50px 字号会缩到不可读，保底放大
+  const css = GEO.scaleAssStyleCss(GEO.assStyleToCss(state, {}),
+    Math.max(rect.height / playres[1], 0.45));
   for (const [prop, value] of Object.entries(css)) {
     textEl.style[prop] = value;
   }
@@ -7248,6 +7250,7 @@ function openStylePanel(idx) {
   }
   renderStylePanel();
   stylePanelModal.classList.add('show');
+  updateStylePanelPreview();  // modal 显示后才能测到真实框体尺寸（隐藏时 rect 为 0）
 }
 
 function openStyleEditorForStyle(name) {
@@ -7261,6 +7264,7 @@ function openStyleEditorForStyle(name) {
   if (previewText) previewText.textContent = '风格预览 Sample';
   renderStylePanel();
   stylePanelModal.classList.add('show');
+  updateStylePanelPreview();  // modal 显示后才能测到真实框体尺寸（隐藏时 rect 为 0）
 }
 
 function closeStylePanel() {
